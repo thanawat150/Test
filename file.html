@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <title>ฐานข้อมูลพรรณไม้</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      font-family: "Prompt", "Sarabun", sans-serif;
+      background-color: #f7faff;
+      margin: 0;
+      padding: 0;
+      color: #333;
+    }
+    header {
+      background: #a7e8bd;
+      color: #333;
+      text-align: center;
+      padding: 1rem;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    header h1 { margin: 0; font-size: 1.5rem; }
+    nav { margin-top: 0.5rem; }
+    nav button {
+      background: #ffd6e0;
+      border: none;
+      border-radius: 8px;
+      padding: 0.5rem 1rem;
+      margin: 0 0.25rem;
+      cursor: pointer;
+      font-size: 1rem;
+      transition: 0.3s;
+    }
+    nav button:hover { background: #ffb6c1; }
+
+    #filters, #quiz, #details { padding: 1rem; }
+    #filters input, #filters select, #filters button {
+      margin: 0.25rem;
+      padding: 0.4rem;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+      font-size: 0.9rem;
+    }
+
+    #list { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; padding: 1rem; }
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+      padding: 1rem;
+      cursor: pointer;
+      transition: transform 0.2s;
+    }
+    .card:hover { transform: translateY(-4px); }
+
+    .modal { position: fixed; top:0; left:0; right:0; bottom:0; background: rgba(0,0,0,0.6); display:none; justify-content:center; align-items:center; }
+    .modal-content { background:#fff; border-radius:12px; padding:1rem; max-width:600px; width:90%; max-height:90%; overflow-y:auto; }
+    .gallery img { width:48%; border-radius:8px; margin:2px; cursor:pointer; }
+
+    button.action {
+      background: #a7e8bd;
+      border: none;
+      border-radius: 8px;
+      padding: 0.5rem 1rem;
+      margin: 0.5rem 0;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: 0.3s;
+    }
+    button.action:hover { background: #7cd68b; }
+
+    #quiz img { max-width: 100%; border-radius: 12px; margin: 1rem 0; background: #f0f0f0; cursor:pointer; }
+    .options button {
+      display: block;
+      width: 100%;
+      margin: 0.25rem 0;
+      background: #ffd6e0;
+      border: none;
+      border-radius: 8px;
+      padding: 0.5rem;
+      cursor: pointer;
+      font-size: 1rem;
+      transition: 0.3s;
+    }
+    .options button:hover { background: #ffb6c1; }
+
+    #progressBarContainer { width:100%; background:#eee; border-radius:8px; overflow:hidden; height:16px; margin: 0.5rem 0; }
+    #progressBar { height:100%; width:0; background:#a7e8bd; transition:width 0.3s; }
+
+    #summary { display:grid; grid-template-columns: repeat(auto-fit,minmax(250px,1fr)); gap:1rem; padding:1rem; }
+    .summary-card { background:#fff; border-radius:12px; padding:1rem; box-shadow:0 2px 6px rgba(0,0,0,0.1); }
+    .summary-card img { width:100%; border-radius:8px; margin-bottom:0.5rem; cursor:pointer; }
+    .correct { color:green; font-weight:bold; }
+    .wrong { color:red; font-weight:bold; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>ฐานข้อมูลพรรณไม้</h1>
+    <nav>
+      <button onclick="showMode('learning')">โหมดเรียนรู้</button>
+      <button onclick="showMode('quiz')">โหมดทาย</button>
+    </nav>
+  </header>
+
+  <section id="learning">
+    <div id="filters">
+      <input type="text" id="search" placeholder="ค้นหาพันธุ์หรือชื่อวิทยาศาสตร์">
+      <select id="filter-วิสัย"><option value="">วิสัย</option></select>
+      <select id="filter-ชนิดใบ"><option value="">ชนิดใบ</option></select>
+      <select id="filter-การเรียงตัวของใบ"><option value="">การเรียงตัวของใบ</option></select>
+      <select id="filter-พันธุ์ไม้"><option value="">พันธุ์ไม้</option></select>
+      <select id="filter-สถานะ"><option value="">สถานะ</option></select>
+      <button onclick="clearFilters()">ล้างตัวกรอง</button>
+      <span id="count"></span>
+    </div>
+    <div id="list"></div>
+  </section>
+
+  <section id="quiz" style="display:none;">
+    <div id="quiz-container">
+      <button class="action" onclick="startQuiz()">เริ่มเกม</button>
+      <div id="progressBarContainer"><div id="progressBar"></div></div>
+      <div id="quiz-question"></div>
+      <div class="options" id="quiz-options"></div>
+      <div id="quiz-feedback"></div>
+      <div id="quiz-score"></div>
+    </div>
+    <div id="summary"></div>
+  </section>
+
+  <div id="details" class="modal" onclick="this.style.display='none'">
+    <div class="modal-content" onclick="event.stopPropagation()">
+      <div id="detail-content"></div>
+      <button class="action" onclick="document.getElementById('details').style.display='none'">ปิด</button>
+    </div>
+  </div>
+
+  <div id="imageModal" class="modal" onclick="this.style.display='none'">
+    <img id="modalImg" style="max-width:90%;max-height:90%;border-radius:12px;">
+  </div>
+
+  <script>
+    const DATA = [
+      {"พันธุ์":"ถอบแถบทะเล","ชื่อวิทยาศาสตร์":"Derris trifoliata Lour.","พันธุ์ไม้":"แท้","วิสัย":"ไม้เลื้อย","ใบ":"ใบประกอบ","ชนิดใบ":"ใบประกอบขนนกปลายคี่","การเรียงตัวของใบ":"เรียงเวียนสลับ","ราก":"","สถานะ":"ยังไม่ได้รับการประเมิน","ภาพลำต้น":"","ภาพใบ":"","ภาพดอก":"https://picsum.photos/400/250?random=1","ภาพผล":""},
+      {"พันธุ์":"ชมพูพันธุ์ทิพย์","ชื่อวิทยาศาสตร์":"Tabebuia rosea","พันธุ์ไม้":"ต่างถิ่น","วิสัย":"ไม้ยืนต้น","ใบ":"ใบประกอบ","ชนิดใบ":"ใบประกอบนิ้วมือ","การเรียงตัวของใบ":"ตรงข้าม","ราก":"","สถานะ":"ยังไม่ได้รับการประเมิน","ภาพลำต้น":"","ภาพใบ":"https://picsum.photos/400/250?random=2","ภาพดอก":"","ภาพผล":""}
+    ];
+
+    let filtered = [...DATA];
+    let quizIndex=0, score=0, quizData=[], answers=[];
+
+    function showMode(mode){
+      document.getElementById('learning').style.display = (mode==='learning')? 'block':'none';
+      document.getElementById('quiz').style.display = (mode==='quiz')? 'block':'none';
+    }
+
+    function loadData(){ renderList(); populateFilters(); }
+
+    function renderList(){
+      const list=document.getElementById('list'); list.innerHTML='';
+      filtered.forEach(item=>{
+        const card=document.createElement('div'); card.className='card';
+        card.innerHTML=`<h3>${item.พันธุ์}</h3><p><em>${item.ชื่อวิทยาศาสตร์}</em></p>`;
+        card.onclick=()=>renderDetail(item);
+        list.appendChild(card);
+      });
+      document.getElementById('count').innerText=`พบ ${filtered.length} รายการ`;
+    }
+
+    function renderDetail(item){
+      const detail=document.getElementById('detail-content');
+      detail.innerHTML=`<h2>${item.พันธุ์}</h2><p><em>${item.ชื่อวิทยาศาสตร์}</em></p>`;
+      detail.innerHTML+=`<p><b>พันธุ์ไม้:</b> ${item.พันธุ์ไม้||'-'}</p>`;
+      detail.innerHTML+=`<div class="gallery">
+        ${renderImage(item.ภาพลำต้น,'ลำต้น')}
+        ${renderImage(item.ภาพใบ,'ใบ')}
+        ${renderImage(item.ภาพดอก,'ดอก')}
+        ${renderImage(item.ภาพผล,'ผล')}
+      </div>`;
+      document.getElementById('details').style.display='flex';
+    }
+
+    function renderImage(url,label){
+      return url? `<img src="${url}" alt="${label}" onclick=\"openImage('${url}')\">` : `<div style=\"width:48%;height:100px;display:inline-flex;align-items:center;justify-content:center;background:#eee;border-radius:8px;\">ไม่มีภาพ</div>`;
+    }
+
+    function openImage(url){
+      document.getElementById('modalImg').src=url;
+      document.getElementById('imageModal').style.display='flex';
+    }
+
+    function populateFilters(){
+      ['วิสัย','ชนิดใบ','การเรียงตัวของใบ','พันธุ์ไม้','สถานะ'].forEach(f=>{
+        const sel=document.getElementById('filter-'+f);
+        const vals=[...new Set(DATA.map(d=>d[f]).filter(v=>v))];
+        vals.forEach(v=>{ let opt=document.createElement('option'); opt.value=v; opt.textContent=v; sel.appendChild(opt); });
+        sel.onchange=applyFilters;
+      });
+      document.getElementById('search').oninput=applyFilters;
+    }
+
+    function applyFilters(){
+      const search=document.getElementById('search').value.toLowerCase();
+      filtered=DATA.filter(item=>{
+        if(search && !(item.พันธุ์.toLowerCase().includes(search)||item.ชื่อวิทยาศาสตร์.toLowerCase().includes(search))) return false;
+        for(const f of ['วิสัย','ชนิดใบ','การเรียงตัวของใบ','พันธุ์ไม้','สถานะ']){
+          const val=document.getElementById('filter-'+f).value;
+          if(val && item[f]!==val) return false;
+        }
+        return true;
+      });
+      renderList();
+    }
+
+    function clearFilters(){
+      document.getElementById('search').value='';
+      ['วิสัย','ชนิดใบ','การเรียงตัวของใบ','พันธุ์ไม้','สถานะ'].forEach(f=>document.getElementById('filter-'+f).value='');
+      filtered=[...DATA]; renderList();
+    }
+
+    // Quiz
+    function startQuiz(){
+      quizData=shuffle(DATA.filter(d=> d.ภาพลำต้น||d.ภาพใบ||d.ภาพดอก||d.ภาพผล)).slice(0,15);
+      if(quizData.length===0){ document.getElementById('quiz-question').innerHTML='ไม่มีข้อมูลภาพสำหรับการทดสอบ'; return; }
+      quizIndex=0; score=0; answers=[];
+      document.getElementById('summary').innerHTML='';
+      nextQuestion();
+    }
+
+    function nextQuestion(){
+      if(quizIndex>=quizData.length){
+        showSummary(); return;
+      }
+      const item=quizData[quizIndex];
+      const images=[item.ภาพใบ,item.ภาพดอก,item.ภาพผล,item.ภาพลำต้น].filter(x=>x);
+      const img=images[Math.floor(Math.random()*images.length)];
+      document.getElementById('quiz-question').innerHTML=`<h3>ข้อ ${quizIndex+1}/${quizData.length}: ภาพนี้คือพันธุ์อะไร?</h3><img src="${img}" onclick=\"openImage('${img}')\">`;
+      const options=shuffle([item,...pickRandomOptions(item,3)]);
+      const optDiv=document.getElementById('quiz-options'); optDiv.innerHTML='';
+      options.forEach(opt=>{
+        const btn=document.createElement('button'); btn.textContent=opt.พันธุ์;
+        btn.onclick=()=>gradeAnswer(opt,item,img);
+        optDiv.appendChild(btn);
+      });
+      document.getElementById('quiz-feedback').innerHTML='';
+      document.getElementById('quiz-score').innerHTML=`คะแนน: ${score}`;
+      document.getElementById('progressBar').style.width=((quizIndex/quizData.length)*100)+'%';
+    }
+
+    function gradeAnswer(selected,correct,img){
+      let isCorrect=(selected===correct);
+      if(isCorrect){ score++; document.getElementById('quiz-feedback').innerHTML='<p class="correct">ถูกต้อง!</p>'; }
+      else { document.getElementById('quiz-feedback').innerHTML=`<p class="wrong">ผิด! คำตอบที่ถูกคือ ${correct.พันธุ์}</p>`; }
+      answers.push({img,selected:selected.พันธุ์,correct:correct.พันธุ์,isCorrect});
+      quizIndex++;
+      setTimeout(nextQuestion,3000);
+    }
+
+    function showSummary(){
+      document.getElementById('quiz-question').innerHTML=`<h3>จบเกม! คุณได้ ${score}/${quizData.length}</h3>`;
+      document.getElementById('quiz-options').innerHTML='';
+      document.getElementById('quiz-feedback').innerHTML='';
+      document.getElementById('progressBar').style.width='100%';
+      const sum=document.getElementById('summary'); sum.innerHTML='';
+      answers.forEach((ans,i)=>{
+        const card=document.createElement('div'); card.className='summary-card';
+        card.innerHTML=`<h4>ข้อ ${i+1}</h4><img src="${ans.img}" onclick=\"openImage('${ans.img}')\"><p>คุณตอบ: ${ans.selected}</p><p>คำตอบที่ถูก: ${ans.correct}</p><p class="${ans.isCorrect? 'correct':'wrong'}">${ans.isCorrect? 'ถูก':'ผิด'}</p>`;
+        sum.appendChild(card);
+      });
+    }
+
+    function pickRandomOptions(correct,n){
+      const others=DATA.filter(d=>d!==correct);
+      return shuffle(others).slice(0,n);
+    }
+    function shuffle(arr){ return arr.sort(()=>Math.random()-0.5); }
+
+    loadData();
+  </script>
+</body>
+</html>
