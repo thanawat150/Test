@@ -14,10 +14,10 @@ VIDEO_EXTS = {".mov", ".mp4", ".m4v", ".avi", ".mkv", ".mts", ".m2ts", ".webm"}
 AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg"}
 
 SFX_DEFAULTS = {
-    "Interface Click": {"file": "Interface Click.mp3", "start": 2.5, "gain_db": -18.0},
-    "Thin Swoosh": {"file": "Thin Swoosh.mp3", "start": 6.0, "gain_db": -17.0},
+    "Interface Click": {"file": "Interface Click.mp3", "start": 2.0, "gain_db": -16.0},
+    "Thin Swoosh": {"file": "Thin Swoosh.mp3", "start": 6.0, "gain_db": -16.0},
     "Cinematic Low Hit": {"file": "Cinematic Low Hit.mp3", "start": 10.12, "gain_db": -20.0},
-    "Swoosh Riser Reverb": {"file": "Swoosh Riser Reverb.mp3", "start": 45.59, "gain_db": -20.0},
+    "Swoosh Riser Reverb": {"file": "Swoosh Riser Reverb.mp3", "start": 45.5, "gain_db": -18.0},
 }
 
 
@@ -113,6 +113,25 @@ def parse_db_instruction(text: str, default: float = -20.0) -> float:
     return default
 
 
+
+def parse_single_time(text: str, default: float = 0.0) -> float:
+    value = str(text or "").strip().replace("~", "")
+    match = re.search(r"\d+(?::\d+){1,2}(?:\.\d+)?", value)
+    if not match:
+        return default
+    try:
+        return parse_timecode(match.group(0))
+    except ValueError:
+        return default
+
+
+def parse_gain_range(text: str, default: float) -> float:
+    nums = [float(x) for x in re.findall(r"-\d+(?:\.\d+)?", str(text or ""))]
+    if nums:
+        return sum(nums) / len(nums)
+    return default
+
+
 def _header_map(headers: list[str]) -> dict[str, int]:
     return {str(header).strip(): i for i, header in enumerate(headers)}
 
@@ -168,6 +187,7 @@ def normalize_guide(raw: dict) -> dict:
                     -20.0,
                 ),
                 "music_instruction": _cell(row, mh.get("Music")),
+                "sfx_instruction": _cell(row, mh.get("SFX")),
                 "text": text,
                 "transition": _cell(row, mh.get("Edit / Transition")) or "Straight Cut",
                 "note": _cell(row, mh.get("หมายเหตุ")),
@@ -227,13 +247,15 @@ def normalize_guide(raw: dict) -> dict:
 
         elif kind == "SFX" and filename in SFX_DEFAULTS:
             d = SFX_DEFAULTS[filename]
+            file_name = filename if Path(filename).suffix else d["file"]
+            recommended = "RECOMMENDED" in status.upper()
             sfx.append(
                 {
-                    "enabled": False,
+                    "enabled": recommended,
                     "name": filename,
-                    "file": d["file"],
-                    "start": d["start"],
-                    "gain_db": d["gain_db"],
+                    "file": file_name,
+                    "start": parse_single_time(use_where, d["start"]),
+                    "gain_db": parse_gain_range(instruction, d["gain_db"]),
                     "instruction": instruction,
                     "status": status,
                     "asset_path": "",
@@ -241,7 +263,7 @@ def normalize_guide(raw: dict) -> dict:
             )
 
     return {
-        "version": "1.0",
+        "version": "1.1",
         "guide_name": "EP01 Master Edit Guide",
         "drive_url": DRIVE_ROOT_URL,
         "settings": {
