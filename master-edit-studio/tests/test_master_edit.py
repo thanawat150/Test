@@ -12,7 +12,14 @@ from project_model import (
     parse_range,
     parse_single_time,
 )
-from render_engine import ass_time, generate_ass, preflight, readable_file
+from render_engine import (
+    ass_time,
+    generate_ass,
+    preflight,
+    readable_file,
+    select_video_encoder,
+    video_encode_args,
+)
 
 
 def test_latest_embedded_guide_has_sfx_column():
@@ -103,3 +110,24 @@ def test_blank_project_is_really_empty():
     assert project["sfx"] == []
     assert project["asset_root"] == ""
     assert project["output_path"] == ""
+
+
+
+def test_default_project_uses_auto_gpu():
+    project = load_default_project()
+    assert project["settings"]["encoder_mode"] == "Auto GPU"
+
+
+def test_cpu_encoder_selection_is_stable():
+    assert select_video_encoder("CPU x264") == ("libx264", "CPU x264")
+
+
+def test_gpu_encode_args_use_expected_encoder():
+    args = video_encode_args("h264_nvenc", preview=False, bitrate="16M")
+    assert args[0:2] == ["-c:v", "h264_nvenc"]
+    assert "16M" in args
+    assert "yuv420p" in args
+
+    cpu = video_encode_args("libx264", preview=False, bitrate="16M")
+    assert cpu[0:2] == ["-c:v", "libx264"]
+    assert "-crf" in cpu
