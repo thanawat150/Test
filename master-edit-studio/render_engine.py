@@ -43,6 +43,162 @@ def readable_file(value: str | Path) -> tuple[bool, str]:
         return False, f"เปิดอ่านไม่ได้: {exc}"
 
 
+GPU_ENCODERS = (
+    ("h264_nvenc", "NVIDIA NVENC"),
+    ("h264_qsv", "Intel Quick Sync"),
+    ("h264_amf", "AMD AMF"),
+)
+
+
+def _creation_flags() -> int:
+    if os.name == "nt":
+        return subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
+    return 0
+
+
+def ffmpeg_encoder_names() -> set[str]:
+    try:
+        proc = subprocess.run(
+            [ffmpeg_exe(), "-hide_banner", "-encoders"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            creationflags=_creation_flags(),
+            timeout=20,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return set()
+
+    names: set[str] = set()
+    for line in proc.stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and len(parts[0]) == 6:
+            names.add(parts[1])
+    return names
+
+
+def probe_video_encoder(encoder: str) -> bool:
+    if encoder == "libx264":
+        return True
+    if encoder not in ffmpeg_encoder_names():
+        return False
+
+    cmd = [
+        ffmpeg_exe(),
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=black:s=128x128:r=30:d=0.2",
+        "-an",
+        "-c:v",
+        encoder,
+        "-frames:v",
+        "2",
+        "-f",
+        "null",
+        "-",
+    ]
+    try:
+        proc = subprocess.run(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            creationflags=_creation_flags(),
+            timeout=20,
+        )
+        return proc.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def select_video_encoder(mode: str | None) -> tuple[str, str]:
+    requested = str(mode or "Auto GPU").strip()
+
+    if requested in {"CPU", "CPU x264", "libx264"}:
+        return "libx264", "CPU x264"
+
+    explicit = {
+        "NVIDIA NVENC": ("h264_nvenc", "NVIDIA NVENC"),
+        "Intel Quick Sync": ("h264_qsv", "Intel Quick Sync"),
+        "AMD AMF": ("h264_amf", "AMD AMF"),
+    }
+    if requested in explicit:
+        encoder, label = explicit[requested]
+        if not probe_video_encoder(encoder):
+            raise RenderError(
+                f"{label} ใช้งานไม่ได้บนเครื่องนี้หรือ Driver/FFmpeg ไม่พร้อม"
+            )
+        return encoder, label
+
+    for encoder, label in GPU_ENCODERS:
+        if probe_video_encoder(encoder):
+            return encoder, label
+
+    return "libx264", "CPU x264"
+
+
+def video_encode_args(
+    encoder: str,
+    *,
+    preview: bool,
+    bitrate: str,
+) -> list[str]:
+    if encoder == "libx264":
+        return [
+            "-c:v", "libx264",
+            "-preset", "veryfast" if preview else "medium",
+            "-crf", "24" if preview else "18",
+            "-profile:v", "high",
+            "-pix_fmt", "yuv420p",
+        ]
+
+    maxrate = "6M" if preview else "20M"
+    bufsize = "8M" if preview else "32M"
+
+    if encoder == "h264_nvenc":
+        return [
+            "-c:v", encoder,
+            "-preset", "p4" if preview else "p5",
+            "-profile:v", "high",
+            "-b:v", bitrate,
+            "-maxrate", maxrate,
+            "-bufsize", bufsize,
+            "-pix_fmt", "yuv420p",
+        ]
+
+    if encoder == "h264_qsv":
+        return [
+            "-c:v", encoder,
+            "-preset", "veryfast" if preview else "medium",
+            "-profile:v", "high",
+            "-b:v", bitrate,
+            "-maxrate", maxrate,
+            "-bufsize", bufsize,
+            "-pix_fmt", "yuv420p",
+        ]
+
+    if encoder == "h264_amf":
+        return [
+            "-c:v", encoder,
+            "-quality", "speed" if preview else "balanced",
+            "-profile:v", "high",
+            "-b:v", bitrate,
+            "-maxrate", maxrate,
+            "-bufsize", bufsize,
+            "-pix_fmt", "yuv420p",
+        ]
+
+    return video_encode_args("libx264", preview=preview, bitrate=bitrate)
+
+
 def db_to_linear(db: float) -> float:
     if db <= -90:
         return 0.0
@@ -245,6 +401,8 @@ def _run_process(
     )
 
     tail: list[str] = []
+    last_speed = ""
+    last_fps = ""
     assert proc.stdout is not None
 
     for raw in proc.stdout:
@@ -254,11 +412,26 @@ def _run_process(
             if len(tail) > 60:
                 tail.pop(0)
 
+        if line.startswith("speed="):
+            last_speed = line.split("=", 1)[1].strip()
+        elif line.startswith("fps="):
+            last_fps = line.split("=", 1)[1].strip()
+
         if progress and duration and line.startswith("out_time_us="):
             try:
                 current = int(line.split("=", 1)[1]) / 1_000_000
                 fraction = max(0.0, min(1.0, current / duration))
-                progress(progress_base + int(progress_span * fraction), message)
+                percent = int(fraction * 100)
+                details = []
+                if last_speed and last_speed != "N/A":
+                    details.append(last_speed)
+                if last_fps and last_fps != "0.00":
+                    details.append(f"{last_fps} fps")
+                suffix = (" • " + " • ".join(details)) if details else ""
+                progress(
+                    progress_base + int(progress_span * fraction),
+                    f"{message} • {percent}%{suffix}",
+                )
             except (ValueError, ZeroDivisionError):
                 pass
 
@@ -493,6 +666,7 @@ def build_final_command(
     ass_path: Path,
     output: Path,
     preview: bool,
+    encoder: str,
 ) -> tuple[list[str], float]:
     settings = project.get("settings", {})
     total_duration = max(
@@ -662,6 +836,9 @@ def build_final_command(
         filter_complex = ";".join(audio_filters)
         map_video = ["-map", "0:v:0"]
 
+    bitrate = "4M" if preview else str(settings.get("video_bitrate", "16M"))
+    audio_bitrate = "160k" if preview else str(settings.get("audio_bitrate", "256k"))
+
     cmd += [
         "-filter_complex",
         filter_complex,
@@ -670,33 +847,16 @@ def build_final_command(
         "[aout]",
         "-t",
         f"{total_duration:.3f}",
-        "-c:v",
-        "libx264",
-        "-preset",
-        "veryfast" if preview else "medium",
-        "-profile:v",
-        "high",
-        "-pix_fmt",
-        "yuv420p",
+        *video_encode_args(
+            encoder,
+            preview=preview,
+            bitrate=bitrate,
+        ),
+        "-c:a",
+        "aac",
+        "-b:a",
+        audio_bitrate,
     ]
-
-    if preview:
-        cmd += ["-b:v", "4M", "-maxrate", "6M", "-bufsize", "8M", "-c:a", "aac", "-b:a", "160k"]
-    else:
-        bitrate = str(settings.get("video_bitrate", "16M"))
-        audio_bitrate = str(settings.get("audio_bitrate", "256k"))
-        cmd += [
-            "-b:v",
-            bitrate,
-            "-maxrate",
-            "20M",
-            "-bufsize",
-            "32M",
-            "-c:a",
-            "aac",
-            "-b:a",
-            audio_bitrate,
-        ]
 
     cmd += [
         "-ar",
@@ -788,23 +948,59 @@ def render_project(
         ass_path = temp_dir / "overlay.ass"
         generate_ass(project, ass_path, width, height)
 
+        encoder_mode = str(settings.get("encoder_mode", "Auto GPU"))
+        if progress:
+            progress(60, "ตรวจสอบ GPU Encoder...")
+        encoder, encoder_label = select_video_encoder(encoder_mode)
+
         cmd, total_duration = build_final_command(
             project,
             base_video,
             ass_path,
             output,
             preview,
+            encoder,
         )
 
-        _run_process(
-            cmd,
-            total_duration,
-            progress,
-            60,
-            39,
-            "Mix เสียง + Text + Subtitle + Export",
-            cancelled,
-        )
+        try:
+            _run_process(
+                cmd,
+                total_duration,
+                progress,
+                60,
+                39,
+                f"Export • {encoder_label}",
+                cancelled,
+            )
+        except RenderError:
+            # Auto mode should always finish even if a hardware encoder becomes
+            # unavailable after probing (driver reset, remote session, etc.).
+            if encoder_mode == "Auto GPU" and encoder != "libx264":
+                output.unlink(missing_ok=True)
+                if progress:
+                    progress(
+                        60,
+                        f"{encoder_label} ใช้งานไม่สำเร็จ • กำลังลอง CPU x264",
+                    )
+                cmd, total_duration = build_final_command(
+                    project,
+                    base_video,
+                    ass_path,
+                    output,
+                    preview,
+                    "libx264",
+                )
+                _run_process(
+                    cmd,
+                    total_duration,
+                    progress,
+                    60,
+                    39,
+                    "Export • CPU x264 (Fallback)",
+                    cancelled,
+                )
+            else:
+                raise
 
     if not output.exists() or output.stat().st_size < 1024:
         raise RenderError("Render เสร็จแต่ไม่พบไฟล์ Output")
