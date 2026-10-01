@@ -349,6 +349,91 @@ def generate_ass(project: dict, path: Path, width: int, height: int) -> None:
     path.write_text("\n".join(lines), encoding="utf-8-sig")
 
 
+def srt_time(seconds: float) -> str:
+    seconds = max(0.0, float(seconds))
+    total_ms = int(round(seconds * 1000))
+    hours, rem = divmod(total_ms, 3_600_000)
+    minutes, rem = divmod(rem, 60_000)
+    secs, millis = divmod(rem, 1000)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+
+
+def generate_srt(project: dict, path: Path) -> Path:
+    blocks: list[str] = []
+    counter = 1
+
+    for voice in project.get("voices", []):
+        if not voice.get("enabled", True):
+            continue
+
+        start = float(voice.get("start", 0))
+        end = float(voice.get("end", start))
+        phrases = split_transcript(voice.get("transcript", ""))
+        if not phrases or end <= start:
+            continue
+
+        duration = end - start
+        weights = [max(1, len(re.sub(r"\s+", "", phrase))) for phrase in phrases]
+        total_weight = sum(weights)
+        cursor = start
+
+        for index, (phrase, weight) in enumerate(zip(phrases, weights)):
+            phrase_end = end if index == len(phrases) - 1 else (
+                cursor + duration * (weight / total_weight)
+            )
+            blocks.append(
+                f"{counter}\n"
+                f"{srt_time(cursor)} --> {srt_time(phrase_end)}\n"
+                f"{phrase.strip()}\n"
+            )
+            counter += 1
+            cursor = phrase_end
+
+    path.write_text("\n".join(blocks), encoding="utf-8-sig")
+    return path
+
+
+def generate_keyword_ass(
+    item: dict,
+    path: Path,
+    width: int,
+    height: int,
+    duration: float,
+) -> bool:
+    text = str(item.get("text", "")).strip()
+    if not text or text in {"—", "-", "–"}:
+        return False
+
+    font_size = max(30, int(height * 0.045))
+    margin = max(100, int(height * 0.13))
+    wrapped = wrap_thai_text(text, max_chars=20, max_lines=2)
+
+    lines = [
+        "[Script Info]",
+        "ScriptType: v4.00+",
+        f"PlayResX: {width}",
+        f"PlayResY: {height}",
+        "ScaledBorderAndShadow: yes",
+        "WrapStyle: 2",
+        "",
+        "[V4+ Styles]",
+        "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding",
+        (
+            f"Style: Keyword,Tahoma,{font_size},&H00FFFFFF,&H000000FF,"
+            f"&H00101010,&H64000000,-1,0,0,0,100,100,0,0,1,3,1,8,80,80,{margin},1"
+        ),
+        "",
+        "[Events]",
+        "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
+        (
+            f"Dialogue: 0,{ass_time(0)},{ass_time(duration)},Keyword,,0,0,0,,"
+            f"{ass_escape(wrapped)}"
+        ),
+    ]
+    path.write_text("\n".join(lines), encoding="utf-8-sig")
+    return True
+
+
 def escape_subtitle_path(path: Path) -> str:
     value = str(path.resolve()).replace("\\", "/")
     value = value.replace(":", r"\:")
@@ -496,6 +581,8 @@ def render_video_segments(
     project: dict,
     temp_dir: Path,
     preview: bool,
+    encoder: str,
+    encoder_label: str,
     progress: ProgressCallback | None,
     cancelled: CancelCallback | None,
 ) -> list[tuple[dict, Path]]:
@@ -506,6 +593,8 @@ def render_video_segments(
     width -= width % 2
     height -= height % 2
     fps = int(settings.get("fps", 30))
+    bitrate = "4M" if preview else str(settings.get("video_bitrate", "16M"))
+    keyword_enabled = bool(settings.get("keyword_enabled", True))
 
     enabled = [x for x in project.get("timeline", []) if x.get("enabled", True)]
     if not enabled:
@@ -532,9 +621,22 @@ def render_video_segments(
             float(item.get("timeline_end", 0)) - float(item.get("timeline_start", 0)),
         )
         source_in = max(0.0, float(item.get("source_in", 0)))
-        source_out = max(source_in + 0.05, float(item.get("source_out", source_in + target_duration)))
+        source_out = max(
+            source_in + 0.05,
+            float(item.get("source_out", source_in + target_duration)),
+        )
         source_duration = max(0.05, source_out - source_in)
         output = temp_dir / f"segment_{index:03d}.mp4"
+
+        keyword_path = temp_dir / f"keyword_{index:03d}.ass"
+        has_keyword = bool(
+            keyword_enabled
+            and generate_keyword_ass(item, keyword_path, width, height, target_duration)
+        )
+        keyword_filter = (
+            f"subtitles='{escape_subtitle_path(keyword_path)}'"
+            if has_keyword else ""
+        )
 
         cmd = [
             ffmpeg_exe(),
@@ -548,47 +650,50 @@ def render_video_segments(
 
         crop_mode = str(item.get("crop_mode", "Fill 9:16"))
         if crop_mode.lower().startswith("fit"):
+            complex_filter = _fit_blur_complex(
+                width,
+                height,
+                fps,
+                source_duration,
+                target_duration,
+                str(item.get("transition", "")),
+            )
+            if has_keyword:
+                complex_filter += f";[v]{keyword_filter}[vout]"
+                map_label = "[vout]"
+            else:
+                map_label = "[v]"
+
             cmd += [
                 "-filter_complex",
-                _fit_blur_complex(
-                    width,
-                    height,
-                    fps,
-                    source_duration,
-                    target_duration,
-                    str(item.get("transition", "")),
-                ),
+                complex_filter,
                 "-map",
-                "[v]",
+                map_label,
             ]
         else:
-            cmd += [
-                "-vf",
-                _fill_filter(
-                    width,
-                    height,
-                    float(item.get("pan_x", 50)),
-                    fps,
-                    source_duration,
-                    target_duration,
-                    str(item.get("transition", "")),
-                ),
-            ]
+            filters = _fill_filter(
+                width,
+                height,
+                float(item.get("pan_x", 50)),
+                fps,
+                source_duration,
+                target_duration,
+                str(item.get("transition", "")),
+            )
+            if has_keyword:
+                filters += f",{keyword_filter}"
+
+            cmd += ["-vf", filters]
 
         cmd += [
             "-an",
             "-t",
             f"{target_duration:.3f}",
-            "-c:v",
-            "libx264",
-            "-preset",
-            "veryfast",
-            "-crf",
-            "24" if preview else "18",
-            "-profile:v",
-            "high",
-            "-pix_fmt",
-            "yuv420p",
+            *video_encode_args(
+                encoder,
+                preview=preview,
+                bitrate=bitrate,
+            ),
             "-movflags",
             "+faststart",
             "-progress",
@@ -605,7 +710,7 @@ def render_video_segments(
             progress,
             base,
             span,
-            f"สร้างภาพ {index + 1}/{total}: {item.get('part','')}",
+            f"สร้างภาพ {index + 1}/{total} • {encoder_label}",
             cancelled,
         )
         outputs.append((item, output))
@@ -663,14 +768,16 @@ def _audio_filter_for_source(label: str, duration: float, gain_db: float, delay_
 def build_final_command(
     project: dict,
     base_video: Path,
-    ass_path: Path,
     output: Path,
     preview: bool,
-    encoder: str,
 ) -> tuple[list[str], float]:
     settings = project.get("settings", {})
     total_duration = max(
-        [float(x.get("timeline_end", 0)) for x in project.get("timeline", []) if x.get("enabled", True)]
+        [
+            float(x.get("timeline_end", 0))
+            for x in project.get("timeline", [])
+            if x.get("enabled", True)
+        ]
         or [1.0]
     )
 
@@ -679,7 +786,6 @@ def build_final_command(
     audio_labels: list[str] = []
     input_index = 1
 
-    # Original location audio from each timeline segment.
     for idx, item in enumerate(project.get("timeline", [])):
         if not item.get("enabled", True):
             continue
@@ -692,20 +798,34 @@ def build_final_command(
         start = float(item.get("timeline_start", 0))
         target_duration = max(0.05, float(item.get("timeline_end", 0)) - start)
         source_in = max(0.0, float(item.get("source_in", 0)))
-        source_out = max(source_in + 0.05, float(item.get("source_out", source_in + target_duration)))
-        source_duration = min(target_duration, max(0.05, source_out - source_in))
+        source_out = max(
+            source_in + 0.05,
+            float(item.get("source_out", source_in + target_duration)),
+        )
+        source_duration = min(
+            target_duration,
+            max(0.05, source_out - source_in),
+        )
 
-        cmd += ["-ss", f"{source_in:.3f}", "-t", f"{source_duration:.3f}", "-i", str(source)]
+        cmd += [
+            "-ss", f"{source_in:.3f}",
+            "-t", f"{source_duration:.3f}",
+            "-i", str(source),
+        ]
         label = f"[{input_index}:a]"
         out_label = f"[orig{idx}]"
         audio_filters.append(
-            _audio_filter_for_source(label, target_duration, gain, int(round(start * 1000)))
+            _audio_filter_for_source(
+                label,
+                target_duration,
+                gain,
+                int(round(start * 1000)),
+            )
             + out_label
         )
         audio_labels.append(out_label)
         input_index += 1
 
-    # Voice over.
     for idx, item in enumerate(project.get("voices", [])):
         if not item.get("enabled", True):
             continue
@@ -732,7 +852,6 @@ def build_final_command(
         audio_labels.append(out_label)
         input_index += 1
 
-    # Music bed. Ducking is approximated conservatively by lowering another 3 dB.
     for idx, item in enumerate(project.get("music", [])):
         if not item.get("enabled", True):
             continue
@@ -759,9 +878,6 @@ def build_final_command(
         volume_filter = f"volume={base_linear:.8f}"
 
         if duck_enabled:
-            # Guide target: Music ~ -30..-27 dB under VO and ~ -25..-22 dB
-            # during breathing/natural-audio moments. Use the editable base gain
-            # for no-VO sections and duck another 4 dB only inside VO intervals.
             intervals: list[tuple[float, float]] = []
             for voice in project.get("voices", []):
                 if not voice.get("enabled", True):
@@ -784,20 +900,22 @@ def build_final_command(
                 volume_filter = f"volume='{expr}':eval=frame"
 
         audio_filters.append(
-            f"{label}aresample=48000,atrim=0:{duration:.3f},asetpts=PTS-STARTPTS,"
-            f"{volume_filter},afade=t=in:st=0:d=0.6,"
+            f"{label}aresample=48000,atrim=0:{duration:.3f},"
+            f"asetpts=PTS-STARTPTS,{volume_filter},"
+            f"afade=t=in:st=0:d=0.6,"
             f"afade=t=out:st={fade_out_start:.3f}:d=1.2,"
-            f"adelay={int(round(start*1000))}|{int(round(start*1000))}{out_label}"
+            f"adelay={int(round(start*1000))}|{int(round(start*1000))}"
+            f"{out_label}"
         )
         audio_labels.append(out_label)
         input_index += 1
 
-    # Sound effects.
     for idx, item in enumerate(project.get("sfx", [])):
         if not item.get("enabled", False):
             continue
         source = Path(item.get("asset_path", ""))
-        if not source.exists():
+        ok, _ = readable_file(source)
+        if not ok:
             continue
 
         start = float(item.get("start", 0))
@@ -808,64 +926,51 @@ def build_final_command(
         linear = db_to_linear(gain)
         audio_filters.append(
             f"{label}aresample=48000,asetpts=PTS-STARTPTS,"
-            f"volume={linear:.8f},adelay={int(round(start*1000))}|{int(round(start*1000))}{out_label}"
+            f"volume={linear:.8f},"
+            f"adelay={int(round(start*1000))}|{int(round(start*1000))}"
+            f"{out_label}"
         )
         audio_labels.append(out_label)
         input_index += 1
 
     if not audio_labels:
-        cmd += ["-f", "lavfi", "-t", f"{total_duration:.3f}", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"]
+        cmd += [
+            "-f", "lavfi",
+            "-t", f"{total_duration:.3f}",
+            "-i", "anullsrc=channel_layout=stereo:sample_rate=48000",
+        ]
         label = f"[{input_index}:a]"
         audio_filters.append(
-            f"{label}atrim=0:{total_duration:.3f},asetpts=PTS-STARTPTS[silent]"
+            f"{label}atrim=0:{total_duration:.3f},"
+            f"asetpts=PTS-STARTPTS[silent]"
         )
         audio_labels.append("[silent]")
 
     audio_filters.append(
         "".join(audio_labels)
-        + f"amix=inputs={len(audio_labels)}:duration=longest:dropout_transition=0:normalize=0,"
-        f"atrim=0:{total_duration:.3f},alimiter=limit=0.95[aout]"
+        + f"amix=inputs={len(audio_labels)}:"
+        f"duration=longest:dropout_transition=0:normalize=0,"
+        f"atrim=0:{total_duration:.3f},"
+        f"alimiter=limit=0.95[aout]"
     )
 
-    subtitles_on = bool(settings.get("subtitle_enabled", True) or settings.get("keyword_enabled", True))
-    if subtitles_on:
-        subtitle_path = escape_subtitle_path(ass_path)
-        video_filter = f"[0:v]subtitles='{subtitle_path}'[vout]"
-        filter_complex = ";".join([video_filter] + audio_filters)
-        map_video = ["-map", "[vout]"]
-    else:
-        filter_complex = ";".join(audio_filters)
-        map_video = ["-map", "0:v:0"]
-
-    bitrate = "4M" if preview else str(settings.get("video_bitrate", "16M"))
-    audio_bitrate = "160k" if preview else str(settings.get("audio_bitrate", "256k"))
+    audio_bitrate = (
+        "160k" if preview
+        else str(settings.get("audio_bitrate", "256k"))
+    )
 
     cmd += [
         "-filter_complex",
-        filter_complex,
-        *map_video,
-        "-map",
-        "[aout]",
-        "-t",
-        f"{total_duration:.3f}",
-        *video_encode_args(
-            encoder,
-            preview=preview,
-            bitrate=bitrate,
-        ),
-        "-c:a",
-        "aac",
-        "-b:a",
-        audio_bitrate,
-    ]
-
-    cmd += [
-        "-ar",
-        "48000",
-        "-movflags",
-        "+faststart",
-        "-progress",
-        "pipe:1",
+        ";".join(audio_filters),
+        "-map", "0:v:0",
+        "-map", "[aout]",
+        "-t", f"{total_duration:.3f}",
+        "-c:v", "copy",
+        "-c:a", "aac",
+        "-b:a", audio_bitrate,
+        "-ar", "48000",
+        "-movflags", "+faststart",
+        "-progress", "pipe:1",
         "-nostats",
         str(output),
     ]
@@ -934,78 +1039,78 @@ def render_project(
     if progress:
         progress(1, "เริ่ม Render")
 
+    settings = project.get("settings", {})
+    encoder_mode = str(settings.get("encoder_mode", "Auto GPU"))
+    if progress:
+        progress(2, "ตรวจสอบ Encoder...")
+    encoder, encoder_label = select_video_encoder(encoder_mode)
+
     with tempfile.TemporaryDirectory(prefix="MasterEditStudio_") as temp:
         temp_dir = Path(temp)
-        segments = render_video_segments(project, temp_dir, preview, progress, cancelled)
-        base_video = concat_segments(segments, temp_dir, progress, cancelled)
-
-        settings = project.get("settings", {})
-        scale = 0.5 if preview else 1.0
-        width = int(int(settings.get("width", 1080)) * scale)
-        height = int(int(settings.get("height", 1920)) * scale)
-        width -= width % 2
-        height -= height % 2
-
-        ass_path = temp_dir / "overlay.ass"
-        generate_ass(project, ass_path, width, height)
-
-        encoder_mode = str(settings.get("encoder_mode", "Auto GPU"))
-        if progress:
-            progress(60, "ตรวจสอบ GPU Encoder...")
-        encoder, encoder_label = select_video_encoder(encoder_mode)
-
-        cmd, total_duration = build_final_command(
-            project,
-            base_video,
-            ass_path,
-            output,
-            preview,
-            encoder,
-        )
 
         try:
-            _run_process(
-                cmd,
-                total_duration,
+            segments = render_video_segments(
+                project,
+                temp_dir,
+                preview,
+                encoder,
+                encoder_label,
                 progress,
-                60,
-                39,
-                f"Export • {encoder_label}",
                 cancelled,
             )
         except RenderError:
-            # Auto mode should always finish even if a hardware encoder becomes
-            # unavailable after probing (driver reset, remote session, etc.).
             if encoder_mode == "Auto GPU" and encoder != "libx264":
-                output.unlink(missing_ok=True)
                 if progress:
                     progress(
-                        60,
-                        f"{encoder_label} ใช้งานไม่สำเร็จ • กำลังลอง CPU x264",
+                        3,
+                        f"{encoder_label} ใช้งานไม่สำเร็จ • ลอง CPU x264",
                     )
-                cmd, total_duration = build_final_command(
+                segments = render_video_segments(
                     project,
-                    base_video,
-                    ass_path,
-                    output,
+                    temp_dir,
                     preview,
                     "libx264",
-                )
-                _run_process(
-                    cmd,
-                    total_duration,
+                    "CPU x264 (Fallback)",
                     progress,
-                    60,
-                    39,
-                    "Export • CPU x264 (Fallback)",
                     cancelled,
                 )
             else:
                 raise
 
+        base_video = concat_segments(
+            segments,
+            temp_dir,
+            progress,
+            cancelled,
+        )
+
+        cmd, total_duration = build_final_command(
+            project,
+            base_video,
+            output,
+            preview,
+        )
+
+        _run_process(
+            cmd,
+            total_duration,
+            progress,
+            60,
+            39,
+            "Mix Audio + Mux MP4",
+            cancelled,
+        )
+
     if not output.exists() or output.stat().st_size < 1024:
         raise RenderError("Render เสร็จแต่ไม่พบไฟล์ Output")
 
+    srt_output = output.with_suffix(".srt")
+    generate_srt(project, srt_output)
+
     if progress:
-        progress(100, f"เสร็จแล้ว: {output.name}")
+        progress(
+            100,
+            f"เสร็จแล้ว: {output.name} + {srt_output.name}",
+        )
     return output
+
