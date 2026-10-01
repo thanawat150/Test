@@ -292,6 +292,9 @@ class MainWindow(QMainWindow):
 
         # Keep Guide audio/render defaults loaded in memory but out of the main UI.
         # These hidden tables are populated from Excel and used by sync_project/render.
+        self.voice_table.setColumnCount(7)
+        self.music_table.setColumnCount(7)
+        self.sfx_table.setColumnCount(5)
         self.log.hide()
 
         self.setCentralWidget(central)
