@@ -35,8 +35,29 @@ def test_header_detection():
     assert app.detect_column(headers, "priority") == 3
 
 
+def test_header_detection_for_split_start_end_columns():
+    headers = ["RAW", "Start", "End", "Purpose", "Priority"]
+    assert app.detect_column(headers, "raw") == 0
+    assert app.detect_column(headers, "start") == 1
+    assert app.detect_column(headers, "end") == 2
+
+
 def test_output_name_keeps_imported_basename():
     assert app.sanitize_output_name("01_JOURNEY_ROAD_IMG1301.MOV") == "01_JOURNEY_ROAD_IMG1301.mp4"
+
+
+def test_seconds_to_timecode():
+    assert app.seconds_to_timecode(7.0) == "00:07.0"
+    assert app.seconds_to_timecode(62.5) == "01:02.5"
+
+
+def test_cut_plan_column_layout_has_auto_range_and_duration():
+    assert app.COL_START == 2
+    assert app.COL_END == 3
+    assert app.COL_RANGE == 4
+    assert app.COL_LENGTH == 5
+    assert app.COL_PURPOSE == 6
+    assert app.COL_PRIORITY == 7
 
 
 def test_ffmpeg_command_is_ai_compatible(tmp_path, monkeypatch):
