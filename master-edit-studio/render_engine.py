@@ -39,7 +39,7 @@ def ass_time(seconds: float) -> str:
 
 def ass_escape(text: str) -> str:
     value = str(text or "")
-    value = value.replace("\\", r"\\")
+    # Preserve ASS line-break control (\\N) produced by wrap_thai_text.
     value = value.replace("{", r"\{").replace("}", r"\}")
     value = value.replace("\n", r"\N")
     return value
@@ -420,7 +420,7 @@ def concat_segments(
     concat_file = temp_dir / "concat.txt"
     concat_file.write_text(
         "\n".join(
-            "file '" + str(path.resolve()).replace("'", "'\\''") + "'"
+            "file '" + str(path.resolve()).replace("\\", "/").replace("'", "'\\''") + "'"
             for _, path in segments
         ),
         encoding="utf-8",
