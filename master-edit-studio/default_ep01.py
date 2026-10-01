@@ -79,12 +79,84 @@ TRACK_SETUP = [
 ]
 
 
+LATEST_SFX_BY_TIMELINE_ROW = [
+    "—",
+    "Interface Click.mp3 @ 00:02.00 | -18 ถึง -14 dB | 1 ครั้งตอน Point/Pin ปรากฏ",
+    "Thin Swoosh.mp3 @ 00:06.00 | -18 ถึง -14 dB | คร่อมรอยตัด Map → Field",
+    "Cinematic Low Hit.mp3 @ 00:10.12 | -22 ถึง -18 dB | เบามาก เน้นคำว่า “ของจริง”",
+    "—", "—", "—", "—", "—", "—",
+    "Swoosh Riser Reverb.mp3 @ ~00:45.5 | -20 ถึง -16 dB | OPTIONAL ถ้าจังหวะเข้า FIELD DATA ยังแบน",
+    "—", "—", "—", "—", "—", "—", "—",
+]
+
+LATEST_SFX_ASSET_OVERRIDES = {
+    "Interface Click": [
+        "SFX", "Interface Click", "EP1/05_EDIT_ASSETS/05_SFX", "00:02.00",
+        "ใส่ 1 ครั้งตอน Point/Pin บน Map ปรากฏ; ประมาณ -18 ถึง -14 dB",
+        "RECOMMENDED", "เปิดไฟล์",
+    ],
+    "Thin Swoosh": [
+        "SFX", "Thin Swoosh", "EP1/05_EDIT_ASSETS/05_SFX", "00:06.00",
+        "วางคร่อมรอยตัด Map → Field เล็กน้อย; ประมาณ -18 ถึง -14 dB",
+        "RECOMMENDED", "เปิดไฟล์",
+    ],
+    "Cinematic Low Hit": [
+        "SFX", "Cinematic Low Hit", "EP1/05_EDIT_ASSETS/05_SFX", "00:10.12",
+        "ใช้เบามากตอนเข้า 'ของจริง'; ประมาณ -22 ถึง -18 dB",
+        "RECOMMENDED เบา ๆ", "เปิดไฟล์",
+    ],
+    "Swoosh Riser Reverb": [
+        "SFX", "Swoosh Riser Reverb", "EP1/05_EDIT_ASSETS/05_SFX", "~00:45.5",
+        "ก่อนเข้า FIELD DATA; ใช้เฉพาะถ้าจังหวะยังแบน; ประมาณ -20 ถึง -16 dB",
+        "OPTIONAL", "เปิดไฟล์",
+    ],
+}
+
+LATEST_A4_TRACK = [
+    "A4 – SFX",
+    "Interface Click / Thin Swoosh / Cinematic Low Hit / Swoosh Riser Reverb",
+    "00:02 / 00:06 / 00:10.12 / ~00:45.5",
+    "Click,Swoosh: -18 ถึง -14 dB | Low Hit: -22 ถึง -18 dB | Riser: -20 ถึง -16 dB",
+    "ใช้เป็น Accent เท่านั้น; Original Audio ยังเป็นหลัก",
+    "Click ตอน Point/Pin → Swoosh คร่อม Map→Field → Low Hit เบามากตอน “ของจริง” → Riser ใช้เฉพาะถ้าเข้า FIELD DATA ยังแบน",
+    "3 ตัวแรกแนะนำ; Riser เป็น OPTIONAL และถ้าเสียงจริงพอดีแล้วไม่ต้องใส่",
+]
+
+
 def default_project() -> dict:
+    # Keep the embedded default synchronized with the latest Drive Guide.
+    # The original constants remain readable, while this patch adds the latest
+    # SFX column and the updated SFX/track instructions.
+    master_headers = list(MASTER_HEADERS)
+    if "SFX" not in master_headers:
+        master_headers.insert(7, "SFX")
+
+    master_timeline = []
+    for index, source_row in enumerate(MASTER_TIMELINE):
+        row = list(source_row)
+        if len(row) == 10:
+            row.insert(7, LATEST_SFX_BY_TIMELINE_ROW[index])
+        master_timeline.append(row)
+
+    asset_map = []
+    for source_row in ASSET_MAP:
+        row = list(source_row)
+        if len(row) > 1 and row[0] == "SFX" and row[1] in LATEST_SFX_ASSET_OVERRIDES:
+            row = list(LATEST_SFX_ASSET_OVERRIDES[row[1]])
+        asset_map.append(row)
+
+    track_setup = []
+    for source_row in TRACK_SETUP:
+        row = list(source_row)
+        if row and str(row[0]).startswith("A4"):
+            row = list(LATEST_A4_TRACK)
+        track_setup.append(row)
+
     return {
-        "master_headers": list(MASTER_HEADERS),
-        "master_timeline": [list(row) for row in MASTER_TIMELINE],
+        "master_headers": master_headers,
+        "master_timeline": master_timeline,
         "asset_headers": list(ASSET_HEADERS),
-        "asset_map": [list(row) for row in ASSET_MAP],
+        "asset_map": asset_map,
         "track_headers": list(TRACK_HEADERS),
-        "track_setup": [list(row) for row in TRACK_SETUP],
+        "track_setup": track_setup,
     }
