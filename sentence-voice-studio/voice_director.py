@@ -64,6 +64,32 @@ ALIASES = {
 
 TAG_PATTERN = re.compile(r"\[([^\[\]]+)\]")
 
+CUE_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
+    ("อุทาน", ("อุทาน", "ตกใจ", "แปลกใจ", "ช็อก", "ว้าว", "โห", "เฮ้ย")),
+    ("ตื่นเต้น", ("ตื่นเต้น", "เร้าใจ", "กระตือรือร้น")),
+    ("ดีใจ", ("ดีใจ", "แฮปปี้", "ยินดี", "ร่าเริง", "ดีมาก")),
+    ("เป็นกันเอง", ("เป็นกันเอง", "เป็นมิตร", "คุยสบาย", "ธรรมดา", "สบายๆ")),
+    ("อบอุ่น", ("อบอุ่น", "อ่อนโยน", "ซึ้ง", "เอ็นดู", "นุ่มนวล")),
+    ("ให้กำลังใจ", ("ให้กำลังใจ", "ปลอบ", "สนับสนุน", "ฮึบ", "สู้")),
+    ("สงสัย", ("สงสัย", "ถาม", "อยากรู้", "งง", "จริงเหรอ", "ทำไม", "อะไร")),
+    ("ครุ่นคิด", ("ครุ่นคิด", "ไตร่ตรอง", "คิดตาม", "ทบทวน", "ลองคิด")),
+    ("คิดถึง", ("คิดถึง", "โหยหา", "วันวาน", "ความทรงจำ")),
+    ("จริงจัง", ("จริงจัง", "หนักแน่น", "สำคัญ", "เตือน", "ระวัง")),
+    ("เศร้า", ("เศร้า", "เสียใจ", "เจ็บ", "ร้องไห้", "จากลา")),
+    ("ผิดหวัง", ("ผิดหวัง", "เสียดาย", "ไม่เป็นอย่างที่คิด")),
+    ("กลัว", ("กลัว", "หวาด", "น่ากลัว", "กังวล")),
+    ("มั่นใจ", ("มั่นใจ", "แน่นอน", "ชัดเจน", "ยืนยัน")),
+    ("กระซิบ", ("กระซิบ", "เบามาก", "เป็นความลับ")),
+    ("เบา", ("เบา", "เสียงเบา", "นุ่ม")),
+    ("ตะโกน", ("ตะโกน", "เสียงดัง", "เรียกดัง")),
+    ("หัวเราะ", ("หัวเราะ", "ฮ่า", "555", "ขำ")),
+    ("ถอนหายใจ", ("ถอนหายใจ", "เฮ้อ", "เหนื่อยใจ")),
+    ("ลังเล", ("ลังเล", "เอ่อ", "อืม", "ไม่แน่ใจ")),
+    ("เร็ว", ("พูดเร็ว", "เร่ง", "เร็วขึ้น")),
+    ("ช้า", ("พูดช้า", "ช้าๆ", "ช้าลง")),
+    ("เน้น", ("เน้น", "ย้ำ", "สำคัญมาก")),
+]
+
 
 @dataclass
 class DirectedSegment:
@@ -72,12 +98,98 @@ class DirectedSegment:
 
 
 def normalize_tag(raw: str) -> str:
-    tag = raw.strip().lower()
-    return ALIASES.get(tag, tag)
+    tag = re.sub(r"\s+", " ", raw.strip().lower())
+    if tag in ALIASES:
+        return ALIASES[tag]
+    if tag in CUES:
+        return tag
+
+    # Flexible Thai descriptions inside [], e.g. [พูดช้าและจริงจัง]
+    for cue_name, keywords in CUE_KEYWORDS:
+        if any(keyword in tag for keyword in keywords):
+            return cue_name
+
+    return tag
 
 
 def get_cue(raw: str) -> DirectorCue | None:
     return CUES.get(normalize_tag(raw))
+
+
+def infer_cue_for_text(text: str) -> str:
+    plain = TAG_PATTERN.sub("", text).strip()
+    lower = plain.lower()
+
+    if not plain:
+        return "ธรรมชาติ"
+
+    if re.search(r"(เฮ้อ|ถอนหายใจ)", lower):
+        return "ถอนหายใจ"
+    if re.search(r"(555+|ฮ่า+|ขำ)", lower):
+        return "หัวเราะ"
+    if re.search(r"(เอ่อ|อืม+|ไม่แน่ใจ|อาจจะ)", lower):
+        return "ลังเล"
+    if "?" in plain or "？" in plain or re.search(r"(ทำไม|อะไร|จริงเหรอ|หรือเปล่า|ไหม\b)", lower):
+        return "สงสัย"
+    if re.search(r"(โห|ว้าว|เฮ้ย|โอ้|ไม่น่าเชื่อ|จริงดิ)", lower):
+        return "อุทาน"
+    if plain.count("!") + plain.count("！") >= 1:
+        return "ตื่นเต้น"
+    if re.search(r"(สำคัญ|ต้อง|ห้าม|ระวัง|ข้อควรจำ|ประเด็นคือ)", lower):
+        return "จริงจัง"
+    if re.search(r"(คิดว่า|ลองคิด|ในมุมหนึ่ง|บางที|ถ้าเรา|อาจเป็นเพราะ)", lower):
+        return "ครุ่นคิด"
+    if re.search(r"(ดีใจ|ยินดี|เยี่ยม|สุดยอด|สำเร็จ)", lower):
+        return "ดีใจ"
+    if re.search(r"(เสียใจ|เศร้า|เจ็บ|จากลา|พลาด)", lower):
+        return "เศร้า"
+    if re.search(r"(ขอบคุณ|ดูแล|ไม่เป็นไร|อยู่ข้าง|เป็นกำลังใจ)", lower):
+        return "อบอุ่น"
+
+    return "เป็นกันเอง"
+
+
+def auto_direct_script(text: str) -> str:
+    """Add editable [cue] tags using transparent local heuristics.
+
+    Existing tags are preserved. Analysis is intentionally conservative:
+    one cue per sentence/line, with no hidden rewriting of the spoken words.
+    """
+    if not text.strip():
+        return text
+
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    output: list[str] = []
+
+    for line in lines:
+        if not line.strip():
+            output.append("")
+            continue
+
+        # If the user already directed this line, do not overwrite it.
+        if TAG_PATTERN.search(line):
+            output.append(line)
+            continue
+
+        chunks = re.split(r"(?<=[.!?！？])\s+", line.strip())
+        directed_chunks: list[str] = []
+        last_cue: str | None = None
+
+        for chunk in chunks:
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+
+            cue = infer_cue_for_text(chunk)
+            if cue != last_cue:
+                directed_chunks.append(f"[{cue}] {chunk}")
+                last_cue = cue
+            else:
+                directed_chunks.append(chunk)
+
+        output.append(" ".join(directed_chunks))
+
+    return "\n".join(output)
 
 
 def parse_director_script(text: str) -> list[DirectedSegment]:
@@ -92,15 +204,13 @@ def parse_director_script(text: str) -> list[DirectedSegment]:
 
         cue = get_cue(match.group(1))
         if cue is not None:
-            # Reaction tags should be emitted as their own cue when there is no
-            # following text dependency; Eleven v4 can vocalize these directly.
             if cue.name in {"หัวเราะ", "ขำ", "ถอนหายใจ", "กระแอม"}:
                 segments.append(DirectedSegment(cue, ""))
             else:
                 current = cue
-        else:
-            # Unknown tags are preserved as spoken text rather than silently lost.
-            segments.append(DirectedSegment(current, match.group(0)))
+        # Unknown [] directives are treated as instructions, not spoken text.
+        # This prevents a custom direction such as [พูดเหมือนกำลังเล่าเรื่อง]
+        # from being read aloud accidentally.
 
         cursor = match.end()
 
