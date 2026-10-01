@@ -109,7 +109,7 @@ class MainWindow(QMainWindow):
         self.worker: RenderWorker | None = None
         self.last_render: Path | None = None
 
-        self.setWindowTitle(f"{APP_NAME} 1.2.0")
+        self.setWindowTitle(f"{APP_NAME} 1.3.0")
         self.resize(1500, 860)
 
         self.guide_label = QLabel("Default: EP01 Master Edit Guide (Latest Synced)")
@@ -793,9 +793,14 @@ class MainWindow(QMainWindow):
         self.last_render = Path(path)
         self.set_render_busy(False)
         self.progress.setValue(100)
-        self.status.setText(f"Render เสร็จแล้ว: {path}")
+        srt_path = Path(path).with_suffix(".srt")
+        self.status.setText(f"Render เสร็จแล้ว: {Path(path).name} + {srt_path.name}")
         self.log_message(f"DONE: {path}")
-        QMessageBox.information(self, APP_NAME, f"Render เสร็จแล้ว\n\n{path}")
+        QMessageBox.information(
+            self,
+            APP_NAME,
+            f"Render เสร็จแล้ว\n\nVideo: {path}\nSubtitle: {srt_path}",
+        )
         self.worker = None
         self.thread = None
 
