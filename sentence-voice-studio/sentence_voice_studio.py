@@ -158,6 +158,22 @@ class VoiceCatalogWorker(QObject):
             self.finished.emit([])
 
 
+class ElevenVoiceWorker(QObject):
+    finished = Signal(list)
+    error = Signal(str)
+
+    def __init__(self, api_key: str) -> None:
+        super().__init__()
+        self.api_key = api_key
+
+    def run(self) -> None:
+        try:
+            self.finished.emit(fetch_eleven_voices(self.api_key))
+        except Exception as exc:
+            self.error.emit(str(exc))
+            self.finished.emit([])
+
+
 class TTSWorker(QObject):
     row_status = Signal(int, str, str)
     progress = Signal(int, int)
@@ -168,20 +184,30 @@ class TTSWorker(QObject):
         self,
         items: list[QueueItem],
         output_dir: Path,
+        engine: str,
         voice: str,
         rate: int,
         pitch: int,
         volume: int,
         natural_pause: bool,
+        director_mode: bool,
+        azure_key: str = "",
+        azure_region: str = "",
+        eleven_key: str = "",
     ) -> None:
         super().__init__()
         self.items = items
         self.output_dir = output_dir
+        self.engine = engine
         self.voice = voice
         self.rate = rate
         self.pitch = pitch
         self.volume = volume
         self.natural_pause = natural_pause
+        self.director_mode = director_mode
+        self.azure_key = azure_key
+        self.azure_region = azure_region
+        self.eleven_key = eleven_key
 
     def run(self) -> None:
         try:
@@ -204,14 +230,20 @@ class TTSWorker(QObject):
             self.row_status.emit(item.row, "กำลังสร้าง...", str(path))
 
             try:
-                communicate = edge_tts.Communicate(
-                    prepare_speech_text(item.text, self.natural_pause),
-                    self.voice,
-                    rate=signed_percent(self.rate),
-                    pitch=signed_hz(self.pitch),
-                    volume=signed_percent(self.volume),
+                await synthesize_audio(
+                    engine=self.engine,
+                    text=item.text,
+                    output_path=path,
+                    voice=self.voice,
+                    rate=self.rate,
+                    pitch=self.pitch,
+                    volume=self.volume,
+                    natural_pause=self.natural_pause,
+                    director_mode=self.director_mode,
+                    azure_key=self.azure_key,
+                    azure_region=self.azure_region,
+                    eleven_key=self.eleven_key,
                 )
-                await communicate.save(str(path))
                 success_paths.append(str(path))
                 self.row_status.emit(item.row, "สำเร็จ", str(path))
             except Exception as exc:
