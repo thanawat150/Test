@@ -52,3 +52,5 @@ jobs:
           path: sentence-voice-studio/dist/SentenceVoiceStudio.exe
           if-no-files-found: error
           retention-days: 30
+
+# rebuild Video Segment Cutter v1.1.0
