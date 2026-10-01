@@ -20,6 +20,9 @@ from voice_director import (
 )
 
 
+EDGE_MAX_ATTEMPTS = 3
+EDGE_RETRY_DELAYS = (0.8, 1.6)
+
 AZURE_THAI_VOICES = [
     ("Krit • MAI Voice 2 • อารมณ์ไทย", "th-TH-Krit:MAI-Voice-2"),
     ("Nattapong • MAI Voice 2 • อารมณ์ไทย", "th-TH-Nattapong:MAI-Voice-2"),
@@ -40,6 +43,68 @@ def _signed_hz(value: int) -> str:
     return f"{value:+d}Hz"
 
 
+
+async def _edge_save_with_retry(
+    *,
+    text: str,
+    output_path: Path,
+    voice: str,
+    rate: int,
+    pitch: int,
+    volume: int,
+) -> None:
+    """Generate one Edge TTS chunk with resilience against NoAudioReceived.
+
+    Microsoft Edge TTS can intermittently close a valid request without returning
+    audio. Retry the same voice first, then make the final attempt with neutral
+    prosody so a transient/prosody-specific failure does not kill a whole batch.
+    """
+    last_error: Exception | None = None
+
+    for attempt in range(1, EDGE_MAX_ATTEMPTS + 1):
+        try:
+            output_path.unlink(missing_ok=True)
+
+            use_rate = rate
+            use_pitch = pitch
+            use_volume = volume
+
+            # Final fallback keeps the selected voice but removes prosody changes.
+            if attempt == EDGE_MAX_ATTEMPTS:
+                use_rate = 0
+                use_pitch = 0
+                use_volume = 0
+
+            communicate = edge_tts.Communicate(
+                text,
+                voice,
+                rate=_signed_percent(use_rate),
+                pitch=_signed_hz(use_pitch),
+                volume=_signed_percent(use_volume),
+            )
+            await communicate.save(str(output_path))
+
+            if output_path.exists() and output_path.stat().st_size > 512:
+                return
+
+            raise RuntimeError("Edge TTS returned an empty audio file.")
+        except Exception as exc:
+            last_error = exc
+            output_path.unlink(missing_ok=True)
+
+            if attempt < EDGE_MAX_ATTEMPTS:
+                delay = EDGE_RETRY_DELAYS[min(attempt - 1, len(EDGE_RETRY_DELAYS) - 1)]
+                await asyncio.sleep(delay)
+
+    message = str(last_error) if last_error else "ไม่ทราบสาเหตุ"
+    raise RuntimeError(
+        "Microsoft Edge TTS ไม่ส่งข้อมูลเสียงกลับมาหลังลองอัตโนมัติ 3 ครั้ง "
+        f"(Voice: {voice}). ปัญหานี้อาจเกิดชั่วคราวจากบริการ Edge TTS หรือเครือข่าย "
+        "ให้ลองกดสร้างอีกครั้ง เปลี่ยนเสียง หรือใช้ Azure/ElevenLabs หากต้องการความเสถียรกว่า "
+        f"รายละเอียดล่าสุด: {message}"
+    ) from last_error
+
+
 async def synthesize_edge(
     text: str,
     output_path: Path,
@@ -52,27 +117,25 @@ async def synthesize_edge(
 ) -> None:
     if not director_mode:
         prepared = prepare_plain_text(text) if natural_pause else text
-        communicate = edge_tts.Communicate(
-            prepared,
-            voice,
-            rate=_signed_percent(rate),
-            pitch=_signed_hz(pitch),
-            volume=_signed_percent(volume),
+        await _edge_save_with_retry(
+            text=prepared,
+            output_path=output_path,
+            voice=voice,
+            rate=rate,
+            pitch=pitch,
+            volume=volume,
         )
-        await communicate.save(str(output_path))
         return
 
     segments = parse_director_script(text)
-    if not segments:
-        segments = []
-
     temp_paths: list[Path] = []
+
     try:
         for index, segment in enumerate(segments):
             cue = segment.cue
 
-            # Free Edge mode cannot make true non-verbal reactions.
-            # We keep those cues as a short natural pause instead of reading the tag.
+            # Edge has no real non-verbal reaction model. Reaction-only cues are
+            # intentionally skipped instead of being read aloud.
             if not segment.text:
                 continue
 
@@ -87,33 +150,35 @@ async def synthesize_edge(
             temp_path = Path(tempfile.gettempdir()) / (
                 f"sentence_voice_segment_{os.getpid()}_{index}.mp3"
             )
-            communicate = edge_tts.Communicate(
-                segment_text,
-                voice,
-                rate=_signed_percent(seg_rate),
-                pitch=_signed_hz(seg_pitch),
-                volume=_signed_percent(seg_volume),
+
+            await _edge_save_with_retry(
+                text=segment_text,
+                output_path=temp_path,
+                voice=voice,
+                rate=seg_rate,
+                pitch=seg_pitch,
+                volume=seg_volume,
             )
-            await communicate.save(str(temp_path))
             temp_paths.append(temp_path)
 
         if not temp_paths:
             prepared = prepare_plain_text(text) if natural_pause else text
-            communicate = edge_tts.Communicate(
-                prepared,
-                voice,
-                rate=_signed_percent(rate),
-                pitch=_signed_hz(pitch),
-                volume=_signed_percent(volume),
+            await _edge_save_with_retry(
+                text=prepared,
+                output_path=output_path,
+                voice=voice,
+                rate=rate,
+                pitch=pitch,
+                volume=volume,
             )
-            await communicate.save(str(output_path))
             return
 
-        # MPEG audio frames are concatenable; Edge outputs plain MP3 frame streams.
-        # This allows per-segment prosody without bundling ffmpeg.
         with output_path.open("wb") as target:
             for temp_path in temp_paths:
                 target.write(temp_path.read_bytes())
+
+        if not output_path.exists() or output_path.stat().st_size <= 512:
+            raise RuntimeError("ไม่สามารถรวมเสียง Edge TTS เป็นไฟล์ผลลัพธ์ได้")
     finally:
         for temp_path in temp_paths:
             try:
