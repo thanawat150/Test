@@ -109,8 +109,8 @@ class MainWindow(QMainWindow):
         self.worker: RenderWorker | None = None
         self.last_render: Path | None = None
 
-        self.setWindowTitle(f"{APP_NAME} 1.1.0")
-        self.resize(1580, 940)
+        self.setWindowTitle(f"{APP_NAME} 1.2.0")
+        self.resize(1500, 860)
 
         self.guide_label = QLabel("Default: EP01 Master Edit Guide (Latest Synced)")
         self.guide_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -216,57 +216,41 @@ class MainWindow(QMainWindow):
     def _build_ui(self) -> None:
         central = QWidget()
         root = QVBoxLayout(central)
-        root.setContentsMargins(16, 16, 16, 16)
-        root.setSpacing(10)
+        root.setContentsMargins(14, 14, 14, 14)
+        root.setSpacing(8)
 
-        title = QLabel(APP_NAME)
+        title_row = QHBoxLayout()
+
+        title = QLabel("Master Timeline")
         font = QFont()
-        font.setPointSize(21)
+        font.setPointSize(20)
         font.setBold(True)
         title.setFont(font)
+        title_row.addWidget(title)
 
-        subtitle = QLabel(
-            "Excel-driven Video Editor • Timeline / VO / Music / SFX / Text / Subtitle ปรับได้ก่อน Render"
-        )
+        title_row.addStretch()
+        title_row.addWidget(self.open_excel_btn)
+        title_row.addWidget(self.reset_default_btn)
+        title_row.addWidget(self.clear_btn)
+        title_row.addWidget(self.asset_btn)
+        title_row.addWidget(self.rematch_btn)
+        title_row.addWidget(self.save_project_btn)
+        title_row.addWidget(self.load_project_btn)
 
-        root.addWidget(title)
-        root.addWidget(subtitle)
+        root.addLayout(title_row)
 
-        toolbar = QHBoxLayout()
-        toolbar.addWidget(self.open_excel_btn)
-        toolbar.addWidget(self.reset_default_btn)
-        toolbar.addWidget(self.clear_btn)
-        toolbar.addWidget(self.guide_label, 1)
-        toolbar.addWidget(self.asset_btn)
-        toolbar.addWidget(self.rematch_btn)
-        toolbar.addWidget(self.save_project_btn)
-        toolbar.addWidget(self.load_project_btn)
-        root.addLayout(toolbar)
-
-        asset_row = QHBoxLayout()
-        asset_row.addWidget(QLabel("Asset Root:"))
-        asset_row.addWidget(self.asset_label, 1)
-        root.addLayout(asset_row)
-
-        self.tabs.addTab(self._timeline_tab(), "1. Timeline")
-        self.tabs.addTab(self._audio_tab(), "2. Audio")
-        self.tabs.addTab(self._render_tab(), "3. Render")
-        root.addWidget(self.tabs, 1)
-
-        root.addWidget(self.progress)
-        root.addWidget(self.status)
-        root.addWidget(self.log)
-        self.setCentralWidget(central)
-
-    def _timeline_tab(self) -> QWidget:
-        page = QWidget()
-        layout = QVBoxLayout(page)
+        source_row = QHBoxLayout()
+        source_row.addWidget(QLabel("Guide:"))
+        source_row.addWidget(self.guide_label, 1)
+        source_row.addWidget(QLabel("Assets:"))
+        source_row.addWidget(self.asset_label, 2)
+        root.addLayout(source_row)
 
         hint = QLabel(
-            "ค่าเริ่มต้นมาจาก Master Timeline ใน Excel • แถวสีเหลืองคือช่วงที่ Guide ระบุแบบประมาณและควรตรวจ Source In/Out"
+            "แก้เฉพาะค่าที่มีผลกับงานจริง • แถวสีเหลือง = Guide ระบุ Source โดยประมาณ ควร Preview แล้วตรวจ Src In / Src Out"
         )
         hint.setWordWrap(True)
-        layout.addWidget(hint)
+        root.addWidget(hint)
 
         headers = [
             "ใช้", "T.Start", "T.End", "Video",
@@ -279,107 +263,54 @@ class MainWindow(QMainWindow):
         self.timeline_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.timeline_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
         self.timeline_table.horizontalHeader().setSectionResizeMode(9, QHeaderView.Stretch)
-        layout.addWidget(self.timeline_table, 1)
+        root.addWidget(self.timeline_table, 1)
 
+        render_group = QGroupBox("Render")
+        render_layout = QVBoxLayout(render_group)
+
+        render_top = QHBoxLayout()
+        render_top.addWidget(QLabel("Encoder:"))
+        render_top.addWidget(self.encoder_combo)
+        render_top.addSpacing(12)
+        render_top.addWidget(QLabel("Output:"))
+        render_top.addWidget(self.output_edit, 1)
+        render_top.addWidget(self.output_btn)
+        render_top.addWidget(self.open_output_btn)
+        render_layout.addLayout(render_top)
+
+        render_actions = QHBoxLayout()
+        render_actions.addWidget(self.preflight_btn)
+        render_actions.addStretch()
+        render_actions.addWidget(self.stop_btn)
+        render_actions.addWidget(self.preview_btn)
+        render_actions.addWidget(self.render_btn)
+        render_layout.addLayout(render_actions)
+
+        root.addWidget(render_group)
+        root.addWidget(self.progress)
+        root.addWidget(self.status)
+
+        # Keep Guide audio/render defaults loaded in memory but out of the main UI.
+        # These hidden tables are populated from Excel and used by sync_project/render.
+        self.log.hide()
+
+        self.setCentralWidget(central)
+
+    def _timeline_tab(self) -> QWidget:
+        # Kept only for backward compatibility with older saved code paths.
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.addWidget(self.timeline_table)
         return page
 
     def _audio_tab(self) -> QWidget:
-        page = QWidget()
-        layout = QVBoxLayout(page)
-
-        vo_group = QGroupBox("Voice Over")
-        vo_layout = QVBoxLayout(vo_group)
-        self.voice_table.setColumnCount(7)
-        self.voice_table.setHorizontalHeaderLabels(
-            ["ใช้", "File", "Start", "End", "Gain dB", "Transcript / Subtitle", "Match"]
-        )
-        self.voice_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        self.voice_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.Stretch)
-        vo_layout.addWidget(self.voice_table)
-
-        music_group = QGroupBox("Music")
-        music_layout = QVBoxLayout(music_group)
-        self.music_table.setColumnCount(7)
-        self.music_table.setHorizontalHeaderLabels(
-            ["ใช้", "File", "Start", "End", "Gain dB", "Duck", "Match"]
-        )
-        self.music_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        music_layout.addWidget(self.music_table)
-
-        sfx_group = QGroupBox("SFX — Guide ล่าสุด")
-        sfx_layout = QVBoxLayout(sfx_group)
-        self.sfx_table.setColumnCount(5)
-        self.sfx_table.setHorizontalHeaderLabels(
-            ["ใช้", "File", "Start", "Gain dB", "Match"]
-        )
-        self.sfx_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        sfx_layout.addWidget(self.sfx_table)
-
-        layout.addWidget(vo_group, 2)
-        layout.addWidget(music_group, 1)
-        layout.addWidget(sfx_group, 2)
-        return page
+        return QWidget()
 
     def _track_tab(self) -> QWidget:
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        hint = QLabel(
-            "Track Setup จาก Excel ใช้เป็นคำแนะนำอ้างอิง ส่วนค่าที่ Render จริงแก้ได้ใน Timeline / Audio / Render"
-        )
-        hint.setWordWrap(True)
-        layout.addWidget(hint)
-        layout.addWidget(self.track_table, 1)
-        return page
+        return QWidget()
 
     def _render_tab(self) -> QWidget:
-        page = QWidget()
-        layout = QVBoxLayout(page)
-
-        settings = QGroupBox("Project / Export Settings")
-        grid = QGridLayout(settings)
-
-        grid.addWidget(QLabel("Width"), 0, 0)
-        grid.addWidget(self.width_spin, 0, 1)
-        grid.addWidget(QLabel("Height"), 0, 2)
-        grid.addWidget(self.height_spin, 0, 3)
-        grid.addWidget(QLabel("FPS"), 0, 4)
-        grid.addWidget(self.fps_spin, 0, 5)
-
-        grid.addWidget(QLabel("Video Bitrate"), 1, 0)
-        grid.addWidget(self.video_bitrate, 1, 1)
-        grid.addWidget(QLabel("Audio Bitrate"), 1, 2)
-        grid.addWidget(self.audio_bitrate, 1, 3)
-        grid.addWidget(QLabel("Encoder"), 2, 0)
-        grid.addWidget(self.encoder_combo, 2, 1, 1, 3)
-        grid.addWidget(self.subtitle_check, 1, 4)
-        grid.addWidget(self.keyword_check, 1, 5)
-        grid.addWidget(self.music_duck_check, 2, 4, 1, 2)
-
-        output_row = QHBoxLayout()
-        output_row.addWidget(QLabel("Output:"))
-        output_row.addWidget(self.output_edit, 1)
-        output_row.addWidget(self.output_btn)
-        output_row.addWidget(self.open_output_btn)
-
-        actions = QHBoxLayout()
-        actions.addWidget(self.preflight_btn)
-        actions.addStretch()
-        actions.addWidget(self.stop_btn)
-        actions.addWidget(self.preview_btn)
-        actions.addWidget(self.render_btn)
-
-        note = QLabel(
-            "Auto GPU จะลอง NVIDIA / Intel / AMD ก่อน แล้ว fallback เป็น CPU x264 อัตโนมัติ • "
-            "Render Final เป็น H.264 MP4 + AAC 48 kHz + Vertical 9:16"
-        )
-        note.setWordWrap(True)
-
-        layout.addWidget(settings)
-        layout.addLayout(output_row)
-        layout.addWidget(note)
-        layout.addStretch()
-        layout.addLayout(actions)
-        return page
+        return QWidget()
 
     def _style(self) -> None:
         self.setStyleSheet("""
@@ -676,7 +607,6 @@ class MainWindow(QMainWindow):
         self.progress.setValue(0)
         self.log.clear()
         self.populate_all()
-        self.tabs.setCurrentIndex(0)
         self.status.setText(
             "เคลียร์หน้าแล้ว • เปิด Excel Guide หรือกดกลับ Default Guide เพื่อเริ่มใหม่"
         )
