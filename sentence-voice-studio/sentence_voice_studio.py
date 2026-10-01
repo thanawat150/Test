@@ -1057,25 +1057,59 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, APP_NAME, "กำลังสร้างเสียงอยู่ กรุณารอให้จบก่อน")
             return
 
-        voice = self.voice_combo.currentData()
-        if not voice:
-            QMessageBox.information(self, APP_NAME, "กรุณาเลือกเสียงก่อน")
-            return
+        engine = self.engine_combo.currentData()
+        azure_key = ""
+        azure_region = ""
+        eleven_key = ""
+
+        if engine == "edge":
+            voice = self.voice_combo.currentData()
+            if not voice:
+                QMessageBox.information(self, APP_NAME, "กรุณาเลือกเสียง Edge ก่อน")
+                return
+        elif engine == "azure":
+            voice = self.azure_voice_combo.currentData()
+            azure_key = self.azure_key_edit.text().strip()
+            azure_region = self.azure_region_edit.text().strip()
+            if not azure_key or not azure_region:
+                QMessageBox.information(
+                    self,
+                    APP_NAME,
+                    "Azure Thai MAI ต้องใส่ Speech Key และ Region ก่อน",
+                )
+                return
+        else:
+            voice = self.eleven_voice_combo.currentData()
+            if not voice:
+                voice = self.eleven_voice_combo.currentText().strip()
+            eleven_key = self.eleven_key_edit.text().strip()
+            if not eleven_key or not voice:
+                QMessageBox.information(
+                    self,
+                    APP_NAME,
+                    "ElevenLabs v4 ต้องใส่ API Key และเลือก/ใส่ Voice ID ก่อน",
+                )
+                return
 
         self.preview_mode = preview
         self.progress.setRange(0, len(items))
         self.progress.setValue(0)
-        self.status_label.setText("กำลังเชื่อมต่อบริการเสียง...")
+        self.status_label.setText("กำลังสร้างเสียงตาม Voice Direction...")
 
         self.thread = QThread(self)
         self.worker = TTSWorker(
             items=items,
             output_dir=output_dir,
+            engine=engine,
             voice=voice,
             rate=self.rate_slider.value(),
             pitch=self.pitch_slider.value(),
             volume=self.volume_slider.value(),
             natural_pause=self.natural_pause_check.isChecked(),
+            director_mode=self.director_mode_check.isChecked(),
+            azure_key=azure_key,
+            azure_region=azure_region,
+            eleven_key=eleven_key,
         )
         self.worker.moveToThread(self.thread)
 
