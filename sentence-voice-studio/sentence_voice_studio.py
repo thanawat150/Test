@@ -8,6 +8,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import edge_tts
+
+from advanced_tts import AZURE_THAI_VOICES, fetch_eleven_voices, synthesize_audio
+from voice_director import CUES, DIRECTOR_HELP, auto_direct_script
 from PySide6.QtCore import QObject, QStandardPaths, QThread, Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QFont
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
@@ -314,6 +317,24 @@ class MainWindow(QMainWindow):
         self.director_example_btn = QPushButton("ใส่ตัวอย่าง Voice Director")
         self.director_example_btn.clicked.connect(self.insert_director_example)
 
+        self.auto_direct_btn = QPushButton("✨ วิเคราะห์อารมณ์อัตโนมัติ")
+        self.auto_direct_btn.setObjectName("primaryButton")
+        self.auto_direct_btn.clicked.connect(self.auto_direct_current_script)
+
+        self.cue_combo = QComboBox()
+        cue_order = [
+            "ธรรมชาติ", "เป็นกันเอง", "อุทาน", "ตื่นเต้น", "ดีใจ", "สงสัย",
+            "ครุ่นคิด", "อบอุ่น", "ให้กำลังใจ", "จริงจัง", "มั่นใจ", "เน้น",
+            "เศร้า", "ผิดหวัง", "กลัว", "ลังเล", "กระซิบ", "เบา", "ตะโกน",
+            "หัวเราะ", "ขำ", "ถอนหายใจ", "กระแอม", "เร็ว", "ช้า", "ปกติ",
+        ]
+        for cue_name in cue_order:
+            if cue_name in CUES:
+                self.cue_combo.addItem(cue_name, cue_name)
+
+        self.insert_cue_btn = QPushButton("แทรก [อารมณ์] ที่เคอร์เซอร์")
+        self.insert_cue_btn.clicked.connect(self.insert_selected_cue)
+
         self.voice_filter_combo = QComboBox()
         self.voice_filter_combo.addItems(
             ["แนะนำสำหรับภาษาไทย", "ไทยแท้ (th-TH)", "Multilingual", "ทั้งหมด"]
@@ -490,9 +511,25 @@ class MainWindow(QMainWindow):
 
         director_buttons = QHBoxLayout()
         director_buttons.addWidget(self.build_queue_btn)
+        director_buttons.addWidget(self.auto_direct_btn)
         director_buttons.addWidget(self.director_help_btn)
         director_buttons.addWidget(self.director_example_btn)
         text_layout.addLayout(director_buttons)
+
+        cue_row = QHBoxLayout()
+        cue_row.addWidget(QLabel("เลือกอารมณ์:"))
+        cue_row.addWidget(self.cue_combo, 1)
+        cue_row.addWidget(self.insert_cue_btn)
+        text_layout.addLayout(cue_row)
+
+        quick_row = QHBoxLayout()
+        for cue_name in ["อุทาน", "สงสัย", "ครุ่นคิด", "หัวเราะ", "ถอนหายใจ", "กระซิบ", "จริงจัง"]:
+            button = QPushButton(f"[{cue_name}]")
+            button.clicked.connect(
+                lambda _checked=False, name=cue_name: self.insert_cue(name)
+            )
+            quick_row.addWidget(button)
+        text_layout.addLayout(quick_row)
 
         settings_group = QGroupBox("2) Engine / บุคคล / การแสดงเสียง")
         grid = QGridLayout(settings_group)
@@ -607,6 +644,31 @@ class MainWindow(QMainWindow):
         root.addWidget(self.status_label)
 
         self.setCentralWidget(central)
+
+    def insert_cue(self, cue_name: str) -> None:
+        if cue_name not in CUES:
+            return
+        cursor = self.text_edit.textCursor()
+        cursor.insertText(f"[{cue_name}] ")
+        self.text_edit.setTextCursor(cursor)
+        self.text_edit.setFocus()
+
+    def insert_selected_cue(self) -> None:
+        cue_name = self.cue_combo.currentData() or self.cue_combo.currentText()
+        self.insert_cue(str(cue_name))
+
+    def auto_direct_current_script(self) -> None:
+        source = self.text_edit.toPlainText()
+        if not source.strip():
+            QMessageBox.information(self, APP_NAME, "กรุณาใส่ข้อความก่อนวิเคราะห์อารมณ์")
+            return
+
+        directed = auto_direct_script(source)
+        self.text_edit.setPlainText(directed)
+        self.build_queue()
+        self.status_label.setText(
+            "วิเคราะห์อารมณ์เบื้องต้นแล้ว • แก้ [อารมณ์] เองได้ก่อนสร้างเสียง"
+        )
 
     def show_director_help(self) -> None:
         QMessageBox.information(self, "Voice Director", DIRECTOR_HELP)
