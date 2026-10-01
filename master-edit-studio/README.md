@@ -1,5 +1,13 @@
 # Master Edit Studio
 
+## Version 1.0.1
+
+- แก้ `Permission denied` จาก Asset Path ว่างที่เดิมถูกตีความเป็นโฟลเดอร์ปัจจุบัน
+- Preflight ตรวจว่า Asset ต้องเป็นไฟล์จริงและเปิดอ่านได้ ก่อนส่งเข้า FFmpeg
+- รองรับกรณี Google Drive/OneDrive placeholder หรือไฟล์ที่ยังไม่มีสิทธิ์อ่าน โดยแจ้งชื่อ Asset ก่อน Render
+- เพิ่มปุ่ม **เคลียร์หน้า** สำหรับล้าง Timeline / VO / Music / SFX / Asset Root / Output โดยไม่ลบไฟล์ต้นฉบับ
+
+
 Windows `.exe` สำหรับประกอบวิดีโอตาม **EP01 Master Edit Guide** โดยอ่าน Excel เป็น Edit Blueprint แล้วให้แก้ค่าทั้งหมดก่อน Render
 
 ## Source of truth
