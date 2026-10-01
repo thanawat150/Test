@@ -78,3 +78,11 @@ def test_ffmpeg_command_is_ai_compatible(tmp_path, monkeypatch):
     assert "-t 7.000" in joined
     assert "-fps_mode cfr" in joined
     assert "+faststart" in cmd
+
+
+
+def test_short_in_to_aliases_do_not_match_filename():
+    headers = ["Filename", "Start", "End"]
+    assert app.detect_column(headers, "raw") == 0
+    assert app.detect_column(headers, "start") == 1
+    assert app.detect_column(headers, "end") == 2
