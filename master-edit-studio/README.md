@@ -1,5 +1,16 @@
 # Master Edit Studio
 
+## Version 1.2.0 — Master Timeline Only
+
+- หน้าโปรแกรมเหลือ **Master Timeline หน้าเดียว**
+- ตัด Audio tab / Render tab / Guide Track Setup ออกจากหน้าจอ
+- VO / Music / SFX ยังอ่านจาก Excel และ Render ตาม Guide เบื้องหลัง
+- Render controls ย้ายมาไว้ใต้ Master Timeline โดยตรง
+- เหลือเฉพาะ Encoder / Output / Preflight / Preview / Final / Stop / Progress
+- Master Timeline แสดงเฉพาะข้อมูลที่มีผลกับงานจริง
+- รองรับ Auto GPU จาก v1.1.0 เหมือนเดิม
+
+
 ## Version 1.1.0
 
 - เพิ่ม **Auto GPU Encoder**: NVIDIA NVENC → Intel Quick Sync → AMD AMF → CPU x264
