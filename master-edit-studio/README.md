@@ -1,5 +1,16 @@
 # Master Edit Studio
 
+## Version 1.3.0 — Fast Final Mux + Separate SRT
+
+- เอา Subtitle burn-in ออกจากวิดีโอ
+- Export Subtitle เป็นไฟล์ `.srt` แยกอัตโนมัติ
+- Keyword Text ยังอยู่ในวิดีโอ แต่ถูกวาดตอนสร้างแต่ละ Segment
+- Final stage ไม่ Encode วิดีโอซ้ำอีก ใช้ `-c:v copy`
+- Final stage เหลือ Audio Mix + MP4 mux เป็นหลัก
+- GPU/CPU encoder ใช้เฉพาะตอนสร้าง Segment
+- ลดคอขวดที่เดิมค้างอยู่ที่ Mix เสียง + Text + Subtitle + Export
+
+
 ## Version 1.2.0 — Master Timeline Only
 
 - หน้าโปรแกรมเหลือ **Master Timeline หน้าเดียว**
