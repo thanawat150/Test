@@ -1,5 +1,7 @@
 # Video Segment Cutter
 
+**Version 1.1.0 — Excel-first Cut Plan**
+
 Windows .exe สำหรับอ่านแผนตัดวิดีโอจาก Excel ให้ผู้ใช้ตรวจสอบก่อน แล้วจึงตัดเฉพาะช่วงที่ต้องการเป็น MP4 สำหรับ AI / โปรแกรมตัดต่อ
 
 ## Workflow
@@ -42,7 +44,8 @@ Windows .exe สำหรับอ่านแผนตัดวิดีโอ�
 - RAW
 - Start
 - End
-- ความยาว
+- ช่วงตัด (Auto)
+- Duration (Auto)
 - เก็บไว้เพื่อ
 - Priority
 - ไฟล์วิดีโอจริง
@@ -50,6 +53,14 @@ Windows .exe สำหรับอ่านแผนตัดวิดีโอ�
 - Output
 - สถานะ
 - Progress
+
+**Start และ End เป็นข้อมูลหลักที่แก้ไขได้** ส่วน `ช่วงตัด (Auto)` และ `Duration (Auto)`
+จะถูกคำนวณใหม่ทันทีเมื่อ Start/End เปลี่ยน เช่น:
+
+    Start: 00:01.5
+    End:   00:08.5
+    ช่วงตัด (Auto): 00:01.5 → 00:08.5
+    Duration (Auto): 00:07.0
 
 สามารถแก้ RAW / Start / End / Purpose / Priority ก่อนตัดได้
 
