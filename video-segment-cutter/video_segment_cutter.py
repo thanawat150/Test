@@ -109,6 +109,17 @@ def normalize_header(value: str) -> str:
     return value
 
 
+def header_matches_keyword(header: str, keyword: str) -> bool:
+    """Avoid false positives from short mapping aliases such as 'in'/'to'."""
+    header = normalize_header(header)
+    keyword = normalize_header(keyword)
+    if not header or not keyword:
+        return False
+    if len(keyword) <= 3 and keyword.isascii():
+        return header == keyword
+    return header == keyword or keyword in header
+
+
 def find_best_header_row(data: list[list], max_rows: int = 20) -> int:
     best_index = 0
     best_score = -1
@@ -123,7 +134,7 @@ def find_best_header_row(data: list[list], max_rows: int = 20) -> int:
             for group, keywords in HEADER_KEYWORDS.items():
                 if group in seen_groups:
                     continue
-                if any(keyword in header for keyword in keywords):
+                if any(header_matches_keyword(header, keyword) for keyword in keywords):
                     score += 3 if group == "raw" else 2
                     seen_groups.add(group)
         if score > best_score:
@@ -141,7 +152,7 @@ def detect_column(headers: list[str], kind: str) -> int | None:
     for idx, header in enumerate(normalized):
         if not header:
             continue
-        if any(header == key or key in header for key in keywords):
+        if any(header_matches_keyword(header, key) for key in keywords):
             return idx
     return None
 
