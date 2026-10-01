@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
 )
 
 from project_model import (
+    blank_project,
     format_timecode,
     load_default_project,
     load_project_from_excel,
@@ -108,7 +109,7 @@ class MainWindow(QMainWindow):
         self.worker: RenderWorker | None = None
         self.last_render: Path | None = None
 
-        self.setWindowTitle(f"{APP_NAME} 1.0")
+        self.setWindowTitle(f"{APP_NAME} 1.0.1")
         self.resize(1580, 940)
 
         self.guide_label = QLabel("Default: EP01 Master Edit Guide (Latest Synced)")
@@ -122,6 +123,9 @@ class MainWindow(QMainWindow):
 
         self.reset_default_btn = QPushButton("กลับ Default Guide")
         self.reset_default_btn.clicked.connect(self.reset_default)
+
+        self.clear_btn = QPushButton("เคลียร์หน้า")
+        self.clear_btn.clicked.connect(self.clear_workspace)
 
         self.asset_btn = QPushButton("เลือกโฟลเดอร์ Assets")
         self.asset_btn.setObjectName("primaryButton")
@@ -222,6 +226,7 @@ class MainWindow(QMainWindow):
         toolbar = QHBoxLayout()
         toolbar.addWidget(self.open_excel_btn)
         toolbar.addWidget(self.reset_default_btn)
+        toolbar.addWidget(self.clear_btn)
         toolbar.addWidget(self.guide_label, 1)
         toolbar.addWidget(self.asset_btn)
         toolbar.addWidget(self.rematch_btn)
@@ -647,6 +652,39 @@ class MainWindow(QMainWindow):
         self.guide_label.setText("Default: EP01 Master Edit Guide (Latest Synced)")
         self.populate_all()
         self.status.setText("กลับ Default Guide ล่าสุดแล้ว")
+
+    def clear_workspace(self) -> None:
+        if self.thread and self.thread.isRunning():
+            QMessageBox.information(
+                self,
+                APP_NAME,
+                "กำลัง Render อยู่ กรุณาหยุดหรือรอให้เสร็จก่อนเคลียร์หน้า",
+            )
+            return
+
+        answer = QMessageBox.question(
+            self,
+            "เคลียร์หน้า",
+            "จะล้าง Timeline / VO / Music / SFX / Asset Root / Output ทั้งหมด\n"
+            "ไฟล์ต้นฉบับในเครื่องจะไม่ถูกลบ\n\n"
+            "ต้องการเคลียร์หน้าใช่หรือไม่?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+
+        self.project = blank_project()
+        self.last_render = None
+        self.guide_label.setText("Blank Project")
+        self.asset_label.setText("ยังไม่ได้เลือกโฟลเดอร์ Assets")
+        self.progress.setValue(0)
+        self.log.clear()
+        self.populate_all()
+        self.tabs.setCurrentIndex(0)
+        self.status.setText(
+            "เคลียร์หน้าแล้ว • เปิด Excel Guide หรือกดกลับ Default Guide เพื่อเริ่มใหม่"
+        )
 
     def choose_asset_root(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "เลือกโฟลเดอร์ที่มี 01_VIDEO / 02_VOICE_OVER / MUSIC / SFX")
