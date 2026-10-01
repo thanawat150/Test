@@ -109,7 +109,7 @@ class MainWindow(QMainWindow):
         self.worker: RenderWorker | None = None
         self.last_render: Path | None = None
 
-        self.setWindowTitle(f"{APP_NAME} 1.0.1")
+        self.setWindowTitle(f"{APP_NAME} 1.1.0")
         self.resize(1580, 940)
 
         self.guide_label = QLabel("Default: EP01 Master Edit Guide (Latest Synced)")
@@ -162,6 +162,15 @@ class MainWindow(QMainWindow):
 
         self.audio_bitrate = QComboBox()
         self.audio_bitrate.addItems(["192k", "256k", "320k"])
+
+        self.encoder_combo = QComboBox()
+        self.encoder_combo.addItems([
+            "Auto GPU",
+            "NVIDIA NVENC",
+            "Intel Quick Sync",
+            "AMD AMF",
+            "CPU x264",
+        ])
 
         self.subtitle_check = QCheckBox("Subtitle จาก VO")
         self.keyword_check = QCheckBox("Keyword Text ตาม Guide")
@@ -241,8 +250,7 @@ class MainWindow(QMainWindow):
 
         self.tabs.addTab(self._timeline_tab(), "1. Timeline")
         self.tabs.addTab(self._audio_tab(), "2. Audio")
-        self.tabs.addTab(self._track_tab(), "3. Guide / Track Setup")
-        self.tabs.addTab(self._render_tab(), "4. Render")
+        self.tabs.addTab(self._render_tab(), "3. Render")
         root.addWidget(self.tabs, 1)
 
         root.addWidget(self.progress)
@@ -261,18 +269,16 @@ class MainWindow(QMainWindow):
         layout.addWidget(hint)
 
         headers = [
-            "ใช้", "T.Start", "T.End", "Part", "Video / Footage",
+            "ใช้", "T.Start", "T.End", "Video",
             "Src In", "Src Out", "Crop", "Pan X%", "Original dB",
-            "Keyword Text", "Transition", "SFX Guide", "Match", "Review",
+            "Keyword", "Transition", "Match",
         ]
         self.timeline_table.setColumnCount(len(headers))
         self.timeline_table.setHorizontalHeaderLabels(headers)
         self.timeline_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.timeline_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.timeline_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
-        self.timeline_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
-        self.timeline_table.horizontalHeader().setSectionResizeMode(10, QHeaderView.Stretch)
-        self.timeline_table.horizontalHeader().setSectionResizeMode(12, QHeaderView.Stretch)
+        self.timeline_table.horizontalHeader().setSectionResizeMode(9, QHeaderView.Stretch)
         layout.addWidget(self.timeline_table, 1)
 
         return page
@@ -293,22 +299,20 @@ class MainWindow(QMainWindow):
 
         music_group = QGroupBox("Music")
         music_layout = QVBoxLayout(music_group)
-        self.music_table.setColumnCount(8)
+        self.music_table.setColumnCount(7)
         self.music_table.setHorizontalHeaderLabels(
-            ["ใช้", "File", "Start", "End", "Gain dB", "Duck", "Instruction", "Match"]
+            ["ใช้", "File", "Start", "End", "Gain dB", "Duck", "Match"]
         )
         self.music_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        self.music_table.horizontalHeader().setSectionResizeMode(6, QHeaderView.Stretch)
         music_layout.addWidget(self.music_table)
 
         sfx_group = QGroupBox("SFX — Guide ล่าสุด")
         sfx_layout = QVBoxLayout(sfx_group)
-        self.sfx_table.setColumnCount(7)
+        self.sfx_table.setColumnCount(5)
         self.sfx_table.setHorizontalHeaderLabels(
-            ["ใช้", "File", "Start", "Gain dB", "Instruction", "Status", "Match"]
+            ["ใช้", "File", "Start", "Gain dB", "Match"]
         )
         self.sfx_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        self.sfx_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
         sfx_layout.addWidget(self.sfx_table)
 
         layout.addWidget(vo_group, 2)
@@ -345,6 +349,8 @@ class MainWindow(QMainWindow):
         grid.addWidget(self.video_bitrate, 1, 1)
         grid.addWidget(QLabel("Audio Bitrate"), 1, 2)
         grid.addWidget(self.audio_bitrate, 1, 3)
+        grid.addWidget(QLabel("Encoder"), 2, 0)
+        grid.addWidget(self.encoder_combo, 2, 1, 1, 3)
         grid.addWidget(self.subtitle_check, 1, 4)
         grid.addWidget(self.keyword_check, 1, 5)
         grid.addWidget(self.music_duck_check, 2, 4, 1, 2)
@@ -363,8 +369,8 @@ class MainWindow(QMainWindow):
         actions.addWidget(self.render_btn)
 
         note = QLabel(
-            "Render Final: H.264 MP4, AAC 48 kHz, Vertical 9:16 • "
-            "Subtitle สร้างจาก Transcript ใน Asset Map • Music ลดลงใต้ VO • SFX เปิด/ปิดและแก้เวลาได้"
+            "Auto GPU จะลอง NVIDIA / Intel / AMD ก่อน แล้ว fallback เป็น CPU x264 อัตโนมัติ • "
+            "Render Final เป็น H.264 MP4 + AAC 48 kHz + Vertical 9:16"
         )
         note.setWordWrap(True)
 
@@ -429,7 +435,6 @@ class MainWindow(QMainWindow):
     def populate_all(self) -> None:
         self.populate_timeline()
         self.populate_audio()
-        self.populate_tracks()
         self.populate_settings()
         self.asset_label.setText(self.project.get("asset_root") or "ยังไม่ได้เลือกโฟลเดอร์ Assets")
 
@@ -443,7 +448,6 @@ class MainWindow(QMainWindow):
                 None,
                 f"{float(item.get('timeline_start',0)):.2f}",
                 f"{float(item.get('timeline_end',0)):.2f}",
-                item.get("part", ""),
                 item.get("file", ""),
                 f"{float(item.get('source_in',0)):.2f}",
                 f"{float(item.get('source_out',0)):.2f}",
@@ -452,15 +456,12 @@ class MainWindow(QMainWindow):
                 f"{float(item.get('original_db',-20)):.1f}",
                 item.get("text", ""),
                 item.get("transition", ""),
-                item.get("sfx_instruction", ""),
                 item.get("match_status", "ยังไม่จับคู่"),
-                "ตรวจ" if item.get("review", False) else "OK",
             ]
 
             self.timeline_table.setItem(row, 0, check_item(bool(item.get("enabled", True))))
             for col in range(1, len(values)):
-                readonly = col in (13, 14)
-                qitem = readonly_item(values[col]) if readonly else editable_item(values[col])
+                qitem = readonly_item(values[col]) if col == 11 else editable_item(values[col])
                 self.timeline_table.setItem(row, col, qitem)
 
             if item.get("review", False):
@@ -468,11 +469,15 @@ class MainWindow(QMainWindow):
                     cell = self.timeline_table.item(row, col)
                     if cell:
                         cell.setBackground(QColor("#fef3c7"))
+                        cell.setToolTip(
+                            "Guide ระบุช่วง Source แบบประมาณ กรุณา Preview และตรวจ Src In/Out"
+                        )
 
-            if item.get("match_status") == "ตรงชื่อ":
-                self.timeline_table.item(row, 13).setBackground(QColor("#dcfce7"))
-            elif item.get("asset_root") or item.get("match_status"):
-                self.timeline_table.item(row, 13).setBackground(QColor("#fee2e2"))
+            match = self.timeline_table.item(row, 11)
+            if item.get("match_status") in {"ตรงชื่อ", "ตรงชื่อฐาน"}:
+                match.setBackground(QColor("#dcfce7"))
+            elif item.get("match_status"):
+                match.setBackground(QColor("#fee2e2"))
 
     def populate_audio(self) -> None:
         self.voice_table.setRowCount(0)
@@ -504,12 +509,11 @@ class MainWindow(QMainWindow):
                 f"{float(item.get('end',0)):.2f}",
                 f"{float(item.get('gain_db',-24)):.1f}",
                 "Yes" if item.get("duck_under_vo", True) else "No",
-                item.get("instruction", ""),
                 item.get("match_status", "ยังไม่จับคู่"),
             ]
             for col, value in enumerate(vals, start=1):
                 self.music_table.setItem(
-                    row, col, readonly_item(value) if col == 7 else editable_item(value)
+                    row, col, readonly_item(value) if col == 6 else editable_item(value)
                 )
 
         self.sfx_table.setRowCount(0)
@@ -521,19 +525,12 @@ class MainWindow(QMainWindow):
                 item.get("file", ""),
                 f"{float(item.get('start',0)):.2f}",
                 f"{float(item.get('gain_db',-18)):.1f}",
-                item.get("instruction", ""),
-                item.get("status", ""),
                 item.get("match_status", "ยังไม่จับคู่"),
             ]
             for col, value in enumerate(vals, start=1):
                 self.sfx_table.setItem(
-                    row, col, readonly_item(value) if col == 6 else editable_item(value)
+                    row, col, readonly_item(value) if col == 4 else editable_item(value)
                 )
-            if "RECOMMENDED" in str(item.get("status", "")).upper():
-                for col in range(self.sfx_table.columnCount()):
-                    cell = self.sfx_table.item(row, col)
-                    if cell:
-                        cell.setBackground(QColor("#dcfce7"))
 
     def populate_tracks(self) -> None:
         raw = self.project.get("raw_guide", {})
@@ -559,6 +556,7 @@ class MainWindow(QMainWindow):
         self.fps_spin.setValue(int(settings.get("fps", 30)))
         self.video_bitrate.setCurrentText(str(settings.get("video_bitrate", "16M")))
         self.audio_bitrate.setCurrentText(str(settings.get("audio_bitrate", "256k")))
+        self.encoder_combo.setCurrentText(str(settings.get("encoder_mode", "Auto GPU")))
         self.subtitle_check.setChecked(bool(settings.get("subtitle_enabled", True)))
         self.keyword_check.setChecked(bool(settings.get("keyword_enabled", True)))
         self.music_duck_check.setChecked(bool(settings.get("music_ducking", True)))
@@ -573,16 +571,14 @@ class MainWindow(QMainWindow):
             item["enabled"] = self.timeline_table.item(row, 0).checkState() == Qt.Checked
             item["timeline_start"] = as_float(self.timeline_table.item(row, 1).text(), f"Timeline {row+1} Start")
             item["timeline_end"] = as_float(self.timeline_table.item(row, 2).text(), f"Timeline {row+1} End")
-            item["part"] = self.timeline_table.item(row, 3).text().strip()
-            item["file"] = self.timeline_table.item(row, 4).text().strip()
-            item["source_in"] = as_float(self.timeline_table.item(row, 5).text(), f"Timeline {row+1} Src In")
-            item["source_out"] = as_float(self.timeline_table.item(row, 6).text(), f"Timeline {row+1} Src Out")
-            item["crop_mode"] = self.timeline_table.item(row, 7).text().strip() or "Fill 9:16"
-            item["pan_x"] = max(0, min(100, int(as_float(self.timeline_table.item(row, 8).text(), f"Timeline {row+1} Pan X"))))
-            item["original_db"] = as_float(self.timeline_table.item(row, 9).text(), f"Timeline {row+1} Original dB")
-            item["text"] = self.timeline_table.item(row, 10).text().strip()
-            item["transition"] = self.timeline_table.item(row, 11).text().strip()
-            item["sfx_instruction"] = self.timeline_table.item(row, 12).text().strip()
+            item["file"] = self.timeline_table.item(row, 3).text().strip()
+            item["source_in"] = as_float(self.timeline_table.item(row, 4).text(), f"Timeline {row+1} Src In")
+            item["source_out"] = as_float(self.timeline_table.item(row, 5).text(), f"Timeline {row+1} Src Out")
+            item["crop_mode"] = self.timeline_table.item(row, 6).text().strip() or "Fill 9:16"
+            item["pan_x"] = max(0, min(100, int(as_float(self.timeline_table.item(row, 7).text(), f"Timeline {row+1} Pan X"))))
+            item["original_db"] = as_float(self.timeline_table.item(row, 8).text(), f"Timeline {row+1} Original dB")
+            item["text"] = self.timeline_table.item(row, 9).text().strip()
+            item["transition"] = self.timeline_table.item(row, 10).text().strip()
 
         voices = self.project.get("voices", [])
         for row, item in enumerate(voices):
@@ -608,8 +604,6 @@ class MainWindow(QMainWindow):
             item["file"] = self.sfx_table.item(row, 1).text().strip()
             item["start"] = as_float(self.sfx_table.item(row, 2).text(), f"SFX {row+1} Start")
             item["gain_db"] = as_float(self.sfx_table.item(row, 3).text(), f"SFX {row+1} Gain")
-            item["instruction"] = self.sfx_table.item(row, 4).text().strip()
-            item["status"] = self.sfx_table.item(row, 5).text().strip()
 
         settings = self.project.setdefault("settings", {})
         settings["width"] = self.width_spin.value()
@@ -617,6 +611,7 @@ class MainWindow(QMainWindow):
         settings["fps"] = self.fps_spin.value()
         settings["video_bitrate"] = self.video_bitrate.currentText()
         settings["audio_bitrate"] = self.audio_bitrate.currentText()
+        settings["encoder_mode"] = self.encoder_combo.currentText()
         settings["subtitle_enabled"] = self.subtitle_check.isChecked()
         settings["keyword_enabled"] = self.keyword_check.isChecked()
         settings["music_ducking"] = self.music_duck_check.isChecked()
@@ -853,6 +848,7 @@ class MainWindow(QMainWindow):
         self.preflight_btn.setEnabled(not busy)
         self.open_excel_btn.setEnabled(not busy)
         self.asset_btn.setEnabled(not busy)
+        self.encoder_combo.setEnabled(not busy)
         self.stop_btn.setEnabled(busy)
 
     def on_render_progress(self, value: int, message: str) -> None:
