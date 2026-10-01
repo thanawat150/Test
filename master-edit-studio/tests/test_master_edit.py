@@ -6,12 +6,13 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from default_ep01 import default_project
 from project_model import (
+    blank_project,
     load_default_project,
     parse_db_instruction,
     parse_range,
     parse_single_time,
 )
-from render_engine import ass_time, generate_ass
+from render_engine import ass_time, generate_ass, preflight, readable_file
 
 
 def test_latest_embedded_guide_has_sfx_column():
@@ -68,3 +69,37 @@ def test_ass_generation_includes_keyword_and_subtitle(tmp_path):
     assert "Style: Subtitle" in text
     assert "1 POINT" in text
     assert "ปกติเวลาดูแผนที่" in text
+
+
+
+def test_empty_asset_path_is_not_treated_as_current_directory(tmp_path):
+    ok, reason = readable_file("")
+    assert ok is False
+    assert "ยังไม่ได้จับคู่" in reason
+
+    ok, reason = readable_file(tmp_path)
+    assert ok is False
+    assert "โฟลเดอร์" in reason
+
+    actual = tmp_path / "clip.mp4"
+    actual.write_bytes(b"test")
+    ok, reason = readable_file(actual)
+    assert ok is True
+    assert reason == ""
+
+
+def test_preflight_blocks_default_project_before_asset_matching():
+    project = load_default_project()
+    issues = preflight(project)
+    assert issues
+    assert any("ยังไม่ได้จับคู่" in issue for issue in issues)
+
+
+def test_blank_project_is_really_empty():
+    project = blank_project()
+    assert project["timeline"] == []
+    assert project["voices"] == []
+    assert project["music"] == []
+    assert project["sfx"] == []
+    assert project["asset_root"] == ""
+    assert project["output_path"] == ""
