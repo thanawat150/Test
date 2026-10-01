@@ -180,22 +180,24 @@ def synthesize_eleven(
         raise RuntimeError("ElevenLabs v4 ต้องใส่ API Key และเลือก Voice")
 
     directed = to_eleven_v4_text(text) if director_mode else prepare_plain_text(text)
-    if len(directed) > 1900:
+    if len(directed) > 4500:
         raise RuntimeError(
-            "ElevenLabs Director แนะนำไม่เกินประมาณ 1,900 ตัวอักษรต่อไฟล์ "
-            "กรุณาใช้โหมดแยกบรรทัด/แยกประโยค"
+            "ข้อความยาวเกินไปสำหรับ Preview ที่ควบคุมอารมณ์ได้ละเอียด "
+            "แนะนำให้ใช้โหมดแยกบรรทัดหรือแยกประโยค"
         )
 
     payload = json.dumps(
         {
-            "inputs": [{"text": directed, "voice_id": voice_id}],
+            "text": directed,
             "model_id": "eleven_v4",
         },
         ensure_ascii=False,
     ).encode("utf-8")
 
+    safe_voice_id = urllib.parse.quote(voice_id, safe="")
     audio = _http_post(
-        "https://api.elevenlabs.io/v1/text-to-dialogue?output_format=mp3_44100_128",
+        f"https://api.elevenlabs.io/v1/text-to-speech/{safe_voice_id}"
+        "?output_format=mp3_44100_128",
         {
             "xi-api-key": api_key,
             "Content-Type": "application/json",
