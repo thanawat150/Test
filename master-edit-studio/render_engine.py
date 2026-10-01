@@ -582,7 +582,7 @@ def render_video_segments(
             "-c:v",
             "libx264",
             "-preset",
-            "veryfast" if preview else "medium",
+            "veryfast",
             "-crf",
             "24" if preview else "18",
             "-profile:v",
@@ -737,7 +737,8 @@ def build_final_command(
         if not item.get("enabled", True):
             continue
         source = Path(item.get("asset_path", ""))
-        if not source.exists():
+        ok, _ = readable_file(source)
+        if not ok:
             continue
 
         start = float(item.get("start", 0))
