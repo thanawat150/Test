@@ -1,5 +1,20 @@
 # Master Edit Studio
 
+## Version 1.1.0
+
+- เพิ่ม **Auto GPU Encoder**: NVIDIA NVENC → Intel Quick Sync → AMD AMF → CPU x264
+- ตรวจ GPU/Driver ด้วยการ encode test จริง ไม่ใช่ดูแค่ชื่อ encoder
+- ถ้า Auto GPU ใช้ hardware encoder แล้วล้มระหว่าง Export จะ fallback เป็น CPU อัตโนมัติ
+- แสดงสถานะ Export พร้อม encoder, เปอร์เซ็นต์, speed และ fps
+- Intermediate segment ใช้ preset ที่เร็วขึ้น เพราะยังมี Final Export อีกครั้ง
+- ลดหน้า Timeline ให้เหลือเฉพาะข้อมูลที่มีผลกับ Render
+- ตัดหน้า Guide / Track Setup ออกจาก UI
+- ตัด Part / SFX Guide / Review ออกจากคอลัมน์ Timeline
+- ใช้สีเหลือง + tooltip แทน Review column
+- Music/SFX table ตัด Instruction/Status ที่ไม่ต้องแก้ตอน Render ออกจากหน้า
+- ยังอ่านข้อมูล Guide ฉบับเต็มจาก Excel เพื่อสร้าง Default เหมือนเดิม
+
+
 ## Version 1.0.1
 
 - แก้ `Permission denied` จาก Asset Path ว่างที่เดิมถูกตีความเป็นโฟลเดอร์ปัจจุบัน
