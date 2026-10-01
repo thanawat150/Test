@@ -11,7 +11,7 @@ from pathlib import Path
 
 import imageio_ffmpeg
 from python_calamine import CalamineWorkbook
-from PySide6.QtCore import QObject, QThread, Qt, Signal
+from PySide6.QtCore import QObject, QThread, Qt, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices, QDragEnterEvent, QDropEvent, QFont
 from PySide6.QtWidgets import (
     QApplication,
@@ -43,14 +43,15 @@ COL_USE = 0
 COL_RAW = 1
 COL_START = 2
 COL_END = 3
-COL_LENGTH = 4
-COL_PURPOSE = 5
-COL_PRIORITY = 6
-COL_SOURCE = 7
-COL_MATCH = 8
-COL_OUTPUT = 9
-COL_STATUS = 10
-COL_PROGRESS = 11
+COL_RANGE = 4
+COL_LENGTH = 5
+COL_PURPOSE = 6
+COL_PRIORITY = 7
+COL_SOURCE = 8
+COL_MATCH = 9
+COL_OUTPUT = 10
+COL_STATUS = 11
+COL_PROGRESS = 12
 
 PRESETS = {
     "AI Ready • 1080p • แนะนำ": {"max_height": 1080, "crf": 20, "preset": "medium", "fps": 30},
@@ -413,7 +414,7 @@ class MainWindow(QMainWindow):
         self.thread: QThread | None = None
         self.worker: CutWorker | None = None
 
-        self.setWindowTitle(f"{APP_NAME} 1.0")
+        self.setWindowTitle(f"{APP_NAME} 1.1")
         self.resize(1440, 900)
 
         self.tabs = QTabWidget()
@@ -452,10 +453,11 @@ class MainWindow(QMainWindow):
         self.load_plan_btn.clicked.connect(self.build_plan_from_excel)
 
         self.plan_table = VideoDropTable()
-        self.plan_table.setColumnCount(12)
+        self.plan_table.setColumnCount(13)
         self.plan_table.setHorizontalHeaderLabels([
-            "ใช้", "RAW", "Start", "End", "ความยาว", "เก็บไว้เพื่อ", "Priority",
-            "ไฟล์วิดีโอจริง", "Match", "Output", "สถานะ", "Progress",
+            "ใช้", "RAW", "Start", "End", "ช่วงตัด (Auto)", "Duration (Auto)",
+            "เก็บไว้เพื่อ", "Priority", "ไฟล์วิดีโอจริง", "Match",
+            "Output", "สถานะ", "Progress",
         ])
         self.plan_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.plan_table.horizontalHeader().setSectionResizeMode(COL_PURPOSE, QHeaderView.Stretch)
@@ -572,7 +574,8 @@ class MainWindow(QMainWindow):
         plan_layout = QVBoxLayout(plan_tab)
 
         plan_hint = QLabel(
-            "แก้ RAW / Start / End / Purpose / Priority ได้โดยตรง • ลากไฟล์วิดีโอมาวางในตารางได้"
+            "แก้ RAW / Start / End / Purpose / Priority ได้โดยตรง • "
+            "ช่วงตัดและ Duration คำนวณอัตโนมัติ • ลากไฟล์วิดีโอมาวางในตารางได้"
         )
         plan_layout.addWidget(plan_hint)
         plan_layout.addWidget(self.plan_table, 1)
@@ -867,6 +870,7 @@ class MainWindow(QMainWindow):
             self.plan_table.setItem(row, COL_RAW, QTableWidgetItem(item.raw_name))
             self.plan_table.setItem(row, COL_START, QTableWidgetItem(item.start))
             self.plan_table.setItem(row, COL_END, QTableWidgetItem(item.end))
+            self.plan_table.setItem(row, COL_RANGE, QTableWidgetItem(""))
             self.plan_table.setItem(row, COL_LENGTH, QTableWidgetItem(""))
             self.plan_table.setItem(row, COL_PURPOSE, QTableWidgetItem(item.purpose))
             self.plan_table.setItem(row, COL_PRIORITY, QTableWidgetItem(item.priority))
@@ -881,7 +885,7 @@ class MainWindow(QMainWindow):
             bar.setFixedWidth(120)
             self.plan_table.setCellWidget(row, COL_PROGRESS, bar)
 
-            for col in (COL_LENGTH, COL_SOURCE, COL_MATCH, COL_OUTPUT, COL_STATUS):
+            for col in (COL_RANGE, COL_LENGTH, COL_SOURCE, COL_MATCH, COL_OUTPUT, COL_STATUS):
                 table_item = self.plan_table.item(row, col)
                 if table_item:
                     table_item.setFlags(table_item.flags() & ~Qt.ItemIsEditable)
@@ -980,16 +984,34 @@ class MainWindow(QMainWindow):
         valid = True
         messages: list[str] = []
 
+        range_item = self.plan_table.item(row, COL_RANGE)
+        length_item = self.plan_table.item(row, COL_LENGTH)
+
         try:
-            start = parse_timecode(self.plan_table.item(row, COL_START).text())
-            end = parse_timecode(self.plan_table.item(row, COL_END).text())
+            start_text = self.plan_table.item(row, COL_START).text().strip()
+            end_text = self.plan_table.item(row, COL_END).text().strip()
+            start = parse_timecode(start_text)
+            end = parse_timecode(end_text)
             if end <= start:
                 raise ValueError("End ต้องมากกว่า Start")
-            self.plan_table.item(row, COL_LENGTH).setText(seconds_to_timecode(end - start))
+
+            # Keep Start/End as the editable source of truth.
+            # Range and Duration are display-only and always regenerated.
+            if range_item:
+                range_item.setText(f"{start_text} → {end_text}")
+                range_item.setBackground(QColor("#eff6ff"))
+            if length_item:
+                length_item.setText(seconds_to_timecode(end - start))
+                length_item.setBackground(QColor("#eff6ff"))
         except Exception as exc:
             valid = False
             messages.append(str(exc))
-            self.plan_table.item(row, COL_LENGTH).setText("ผิด")
+            if range_item:
+                range_item.setText("ตรวจเวลา")
+                range_item.setBackground(QColor("#fee2e2"))
+            if length_item:
+                length_item.setText("ผิด")
+                length_item.setBackground(QColor("#fee2e2"))
 
         source_item = self.plan_table.item(row, COL_SOURCE)
         source_path = Path(source_item.text()) if source_item and source_item.text() else None
