@@ -23,6 +23,26 @@ def ffmpeg_exe() -> str:
     return imageio_ffmpeg.get_ffmpeg_exe()
 
 
+def readable_file(value: str | Path) -> tuple[bool, str]:
+    raw = str(value or "").strip()
+    if not raw:
+        return False, "ยังไม่ได้จับคู่ไฟล์"
+
+    path = Path(raw)
+    try:
+        if not path.exists():
+            return False, "ไม่พบไฟล์"
+        if not path.is_file():
+            return False, "Path นี้เป็นโฟลเดอร์ ไม่ใช่ไฟล์"
+        with path.open("rb") as stream:
+            stream.read(1)
+        return True, ""
+    except PermissionError:
+        return False, "เปิดอ่านไม่ได้: Permission denied"
+    except OSError as exc:
+        return False, f"เปิดอ่านไม่ได้: {exc}"
+
+
 def db_to_linear(db: float) -> float:
     if db <= -90:
         return 0.0
@@ -181,6 +201,10 @@ def escape_subtitle_path(path: Path) -> str:
 
 
 def probe_has_audio(path: Path) -> bool:
+    ok, _ = readable_file(path)
+    if not ok:
+        return False
+
     creationflags = 0
     if os.name == "nt":
         creationflags = subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
@@ -322,8 +346,13 @@ def render_video_segments(
             raise RenderError("ยกเลิกการ Render แล้ว")
 
         source = Path(item.get("asset_path", ""))
-        if not source.exists():
-            raise RenderError(f"ไม่พบไฟล์ Video: {item.get('file','')}")
+        ok, reason = readable_file(source)
+        if not ok:
+            raise RenderError(
+                f"เปิดไฟล์ Video ไม่ได้: {item.get('file','')}\n"
+                f"Path: {item.get('asset_path','') or '(ยังไม่ได้จับคู่)'}\n"
+                f"สาเหตุ: {reason}"
+            )
 
         target_duration = max(
             0.05,
@@ -482,7 +511,8 @@ def build_final_command(
             continue
         gain = float(item.get("original_db", -20.0))
         source = Path(item.get("asset_path", ""))
-        if gain <= -90 or not source.exists() or not probe_has_audio(source):
+        ok, _ = readable_file(source)
+        if gain <= -90 or not ok or not probe_has_audio(source):
             continue
 
         start = float(item.get("timeline_start", 0))
@@ -506,7 +536,8 @@ def build_final_command(
         if not item.get("enabled", True):
             continue
         source = Path(item.get("asset_path", ""))
-        if not source.exists():
+        ok, _ = readable_file(source)
+        if not ok:
             continue
 
         start = float(item.get("start", 0))
@@ -698,8 +729,11 @@ def preflight(project: dict) -> list[str]:
             problems.append(f"Timeline {i}: End ต้องมากกว่า Start")
         if source_out <= source_in:
             problems.append(f"Timeline {i}: Source Out ต้องมากกว่า Source In")
-        if not Path(item.get("asset_path", "")).exists():
-            problems.append(f"Timeline {i}: ไม่พบ {item.get('file','')}")
+        ok, reason = readable_file(item.get("asset_path", ""))
+        if not ok:
+            problems.append(
+                f"Timeline {i}: {item.get('file','')} — {reason}"
+            )
         if previous_end is not None and abs(start - previous_end) > 0.08:
             problems.append(
                 f"Timeline {i}: มี Gap/Overlap จากแถวก่อน {start - previous_end:+.2f} วินาที"
@@ -708,8 +742,12 @@ def preflight(project: dict) -> list[str]:
 
     for group_name, label in (("voices", "VO"), ("music", "Music"), ("sfx", "SFX")):
         for item in project.get(group_name, []):
-            if item.get("enabled", group_name != "sfx") and not Path(item.get("asset_path", "")).exists():
-                problems.append(f"{label}: ไม่พบ {item.get('file','')}")
+            if item.get("enabled", group_name != "sfx"):
+                ok, reason = readable_file(item.get("asset_path", ""))
+                if not ok:
+                    problems.append(
+                        f"{label}: {item.get('file','')} — {reason}"
+                    )
 
     return problems
 
@@ -722,6 +760,10 @@ def render_project(
     cancelled: CancelCallback | None = None,
 ) -> Path:
     output = Path(output_path)
+    if output.exists() and output.is_dir():
+        raise RenderError(
+            "Output ที่เลือกเป็นโฟลเดอร์ กรุณาเลือกชื่อไฟล์ .mp4"
+        )
     output.parent.mkdir(parents=True, exist_ok=True)
 
     issues = preflight(project)
