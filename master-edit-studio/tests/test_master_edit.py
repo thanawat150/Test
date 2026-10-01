@@ -1,4 +1,7 @@
+import os
 import sys
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -131,3 +134,21 @@ def test_gpu_encode_args_use_expected_encoder():
     cpu = video_encode_args("libx264", preview=False, bitrate="16M")
     assert cpu[0:2] == ["-c:v", "libx264"]
     assert "-crf" in cpu
+
+
+
+def test_master_timeline_is_the_only_visible_work_page():
+    from PySide6.QtWidgets import QApplication
+    from master_edit_studio import MainWindow
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+
+    assert window.timeline_table.columnCount() == 12
+    assert window.timeline_table.rowCount() == 18
+    assert window.voice_table.columnCount() == 7
+    assert window.music_table.columnCount() == 7
+    assert window.sfx_table.columnCount() == 5
+    assert window.tabs.count() == 0
+
+    window.close()
