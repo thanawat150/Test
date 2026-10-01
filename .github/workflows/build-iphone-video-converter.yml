@@ -1,0 +1,57 @@
+name: Build iPhone Video Converter
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/iphone-video-converter
+    paths:
+      - "iphone-video-converter/**"
+      - ".github/workflows/build-iphone-video-converter.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "iphone-video-converter/**"
+      - ".github/workflows/build-iphone-video-converter.yml"
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        working-directory: iphone-video-converter
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Run tests
+        run: pytest -q
+
+      - name: Verify bundled FFmpeg
+        run: |
+          python -c "import imageio_ffmpeg, os; p=imageio_ffmpeg.get_ffmpeg_exe(); print(p); assert os.path.exists(p)"
+
+      - name: Build EXE
+        run: |
+          pyinstaller --noconfirm --clean --onefile --windowed --name iPhoneVideoConverter --collect-all imageio_ffmpeg iphone_video_converter.py
+
+      - name: Upload Windows EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: iPhoneVideoConverter-Windows
+          path: iphone-video-converter/dist/iPhoneVideoConverter.exe
+          if-no-files-found: error
+          retention-days: 30
