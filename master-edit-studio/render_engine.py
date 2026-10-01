@@ -539,17 +539,47 @@ def build_final_command(
         end = float(item.get("end", total_duration))
         duration = max(0.05, end - start)
         gain = float(item.get("gain_db", -24.0))
-        if item.get("duck_under_vo", True):
-            gain -= 3.0
+        duck_enabled = bool(
+            item.get("duck_under_vo", True)
+            and settings.get("music_ducking", True)
+        )
 
         cmd += ["-stream_loop", "-1", "-i", str(source)]
         label = f"[{input_index}:a]"
         out_label = f"[music{idx}]"
         fade_out_start = max(0.0, duration - 1.2)
-        linear = db_to_linear(gain)
+
+        base_linear = db_to_linear(gain)
+        volume_filter = f"volume={base_linear:.8f}"
+
+        if duck_enabled:
+            # Guide target: Music ~ -30..-27 dB under VO and ~ -25..-22 dB
+            # during breathing/natural-audio moments. Use the editable base gain
+            # for no-VO sections and duck another 4 dB only inside VO intervals.
+            intervals: list[tuple[float, float]] = []
+            for voice in project.get("voices", []):
+                if not voice.get("enabled", True):
+                    continue
+                v_start = max(start, float(voice.get("start", 0)))
+                v_end = min(end, float(voice.get("end", 0)))
+                if v_end > v_start:
+                    intervals.append((v_start - start, v_end - start))
+
+            if intervals:
+                checks = "+".join(
+                    f"between(t\\,{a:.3f}\\,{b:.3f})"
+                    for a, b in intervals
+                )
+                duck_linear = db_to_linear(gain - 4.0)
+                expr = (
+                    f"if(gt({checks}\\,0)\\,"
+                    f"{duck_linear:.8f}\\,{base_linear:.8f})"
+                )
+                volume_filter = f"volume='{expr}':eval=frame"
+
         audio_filters.append(
             f"{label}aresample=48000,atrim=0:{duration:.3f},asetpts=PTS-STARTPTS,"
-            f"volume={linear:.8f},afade=t=in:st=0:d=0.6,"
+            f"{volume_filter},afade=t=in:st=0:d=0.6,"
             f"afade=t=out:st={fade_out_start:.3f}:d=1.2,"
             f"adelay={int(round(start*1000))}|{int(round(start*1000))}{out_label}"
         )
