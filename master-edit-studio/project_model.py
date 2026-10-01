@@ -286,6 +286,38 @@ def normalize_guide(raw: dict) -> dict:
     }
 
 
+def blank_project() -> dict:
+    return {
+        "version": "1.1",
+        "guide_name": "Blank Project",
+        "drive_url": "",
+        "settings": {
+            "width": 1080,
+            "height": 1920,
+            "fps": 30,
+            "video_bitrate": "16M",
+            "audio_bitrate": "256k",
+            "subtitle_enabled": True,
+            "keyword_enabled": True,
+            "music_ducking": True,
+        },
+        "timeline": [],
+        "voices": [],
+        "music": [],
+        "sfx": [],
+        "raw_guide": {
+            "master_headers": [],
+            "master_timeline": [],
+            "asset_headers": [],
+            "asset_map": [],
+            "track_headers": [],
+            "track_setup": [],
+        },
+        "asset_root": "",
+        "output_path": "",
+    }
+
+
 def load_default_project() -> dict:
     return normalize_guide(default_project())
 
