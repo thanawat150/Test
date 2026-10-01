@@ -72,16 +72,15 @@ def test_ass_time():
     assert ass_time(68.0) == "0:01:08.00"
 
 
-def test_ass_generation_includes_keyword_and_subtitle(tmp_path):
+def test_ass_generation_keeps_keyword_but_not_subtitle_burn_in(tmp_path):
     project = load_default_project()
     out = tmp_path / "overlay.ass"
     generate_ass(project, out, 1080, 1920)
     text = out.read_text(encoding="utf-8-sig")
 
     assert "Style: Keyword" in text
-    assert "Style: Subtitle" in text
     assert "1 POINT" in text
-    assert "ปกติเวลาดูแผนที่" in text
+    assert "ปกติเวลาดูแผนที่" not in text
 
 
 
