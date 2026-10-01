@@ -1,0 +1,59 @@
+import sys
+from datetime import time, timedelta
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
+
+import video_segment_cutter as app
+
+
+def test_parse_timecodes():
+    assert app.parse_timecode("00:01.5") == 1.5
+    assert app.parse_timecode("01:02.5") == 62.5
+    assert app.parse_timecode("00:01:02.5") == 62.5
+    assert app.parse_timecode(time(0, 0, 3, 500000)) == 3.5
+    assert app.parse_timecode(timedelta(seconds=4.2)) == 4.2
+
+
+def test_parse_range_cell():
+    assert app.parse_range_cell("00:01.5 → 00:08.5") == ("00:01.5", "00:08.5")
+    assert app.parse_range_cell("00:02 -> 00:17") == ("00:02", "00:17")
+
+
+def test_header_detection():
+    data = [
+        ["โครงการสำรวจ"],
+        ["RAW", "ตัดช่วงประมาณ", "เก็บไว้เพื่อ", "Priority"],
+        ["a.MOV", "00:01 → 00:03", "test", "PRIMARY"],
+    ]
+    assert app.find_best_header_row(data) == 1
+    headers = data[1]
+    assert app.detect_column(headers, "raw") == 0
+    assert app.detect_column(headers, "range") == 1
+    assert app.detect_column(headers, "purpose") == 2
+    assert app.detect_column(headers, "priority") == 3
+
+
+def test_output_name_keeps_imported_basename():
+    assert app.sanitize_output_name("01_JOURNEY_ROAD_IMG1301.MOV") == "01_JOURNEY_ROAD_IMG1301.mp4"
+
+
+def test_ffmpeg_command_is_ai_compatible(tmp_path, monkeypatch):
+    monkeypatch.setattr(app.imageio_ffmpeg, "get_ffmpeg_exe", lambda: "ffmpeg")
+    job = app.CutJob(
+        row=0,
+        source=tmp_path / "a.MOV",
+        output=tmp_path / "a.mp4",
+        start_seconds=1.5,
+        duration_seconds=7.0,
+    )
+    cmd = app.build_ffmpeg_command(job, "AI Ready • 1080p • แนะนำ")
+    joined = " ".join(cmd)
+    assert "libx264" in cmd
+    assert "aac" in cmd
+    assert "yuv420p" in cmd
+    assert "-ss 1.500" in joined
+    assert "-t 7.000" in joined
+    assert "-fps_mode cfr" in joined
+    assert "+faststart" in cmd
