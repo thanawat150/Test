@@ -18,6 +18,9 @@ from project_model import (
 from render_engine import (
     ass_time,
     generate_ass,
+    generate_srt,
+    generate_keyword_ass,
+    build_final_command,
     preflight,
     readable_file,
     select_video_encoder,
@@ -152,3 +155,36 @@ def test_master_timeline_is_the_only_visible_work_page():
     assert window.tabs.count() == 0
 
     window.close()
+
+
+
+def test_srt_export_is_separate_from_video(tmp_path):
+    project = load_default_project()
+    out = tmp_path / "episode.srt"
+    generate_srt(project, out)
+    text = out.read_text(encoding="utf-8-sig")
+    assert "-->" in text
+    assert "ปกติเวลาดูแผนที่" in text
+
+
+def test_keyword_ass_contains_only_keyword_layer(tmp_path):
+    project = load_default_project()
+    item = next(x for x in project["timeline"] if x.get("text"))
+    out = tmp_path / "keyword.ass"
+    ok = generate_keyword_ass(item, out, 1080, 1920, 4.0)
+    assert ok is True
+    text = out.read_text(encoding="utf-8-sig")
+    assert "Style: Keyword" in text
+    assert "Style: Subtitle" not in text
+
+
+def test_final_mux_copies_video_without_reencoding(tmp_path):
+    project = load_default_project()
+    base = tmp_path / "base.mp4"
+    output = tmp_path / "final.mp4"
+    cmd, _ = build_final_command(project, base, output, preview=False)
+    joined = " ".join(cmd)
+    assert "-c:v copy" in joined
+    assert "subtitles=" not in joined
+    assert "libx264" not in joined
+    assert "h264_amf" not in joined
