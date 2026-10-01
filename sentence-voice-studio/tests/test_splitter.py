@@ -1,11 +1,4 @@
-import importlib.util
-from pathlib import Path
-
-APP_PATH = Path(__file__).resolve().parents[1] / "sentence_voice_studio.py"
-spec = importlib.util.spec_from_file_location("sentence_voice_studio", APP_PATH)
-module = importlib.util.module_from_spec(spec)
-assert spec and spec.loader
-spec.loader.exec_module(module)
+import sentence_voice_studio as module
 
 
 def test_split_lines():
