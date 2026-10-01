@@ -261,6 +261,8 @@ class MainWindow(QMainWindow):
         self.worker: TTSWorker | None = None
         self.voice_thread: QThread | None = None
         self.voice_worker: VoiceCatalogWorker | None = None
+        self.eleven_voice_thread: QThread | None = None
+        self.eleven_voice_worker: ElevenVoiceWorker | None = None
         self.preview_mode = False
         self._applying_preset = False
 
@@ -275,8 +277,8 @@ class MainWindow(QMainWindow):
             for label, short_name, gender, locale, thai_capable in CURATED_VOICES
         ]
 
-        self.setWindowTitle(f"{APP_NAME} 0.2")
-        self.resize(1280, 860)
+        self.setWindowTitle(f"{APP_NAME} 0.3 • Voice Director")
+        self.resize(1360, 920)
 
         self.audio_output = QAudioOutput(self)
         self.audio_output.setVolume(0.9)
@@ -287,14 +289,30 @@ class MainWindow(QMainWindow):
 
         self.text_edit = QTextEdit()
         self.text_edit.setPlaceholderText(
-            "วางข้อความที่นี่...\n\n"
-            "ใช้ | สำหรับพักสั้น และ || สำหรับพักยาว เช่น:\n"
-            "วันนี้ | เราจะมาพูดเรื่อง AI || แบบที่ฟังเป็นธรรมชาติมากขึ้น"
+            "เขียนเหมือนกำกับนักพากย์ได้เลย เช่น:\n\n"
+            "[เป็นกันเอง] วันนี้เราจะมาคุยเรื่อง AI || "
+            "[อุทาน] โห! มันทำได้ขนาดนี้เลยเหรอ? | "
+            "[ครุ่นคิด] แต่ถ้าเราใช้ไม่ถูกวิธี... มันก็ยังฟังแข็งอยู่\n\n"
+            "[หัวเราะ] [อบอุ่น] ลองฟังแบบนี้ดู"
         )
-        self.text_edit.setMinimumHeight(250)
+        self.text_edit.setMinimumHeight(270)
 
         self.mode_combo = QComboBox()
         self.mode_combo.addItems([MODE_LINES, MODE_SENTENCES, MODE_FULL])
+
+        self.engine_combo = QComboBox()
+        self.engine_combo.addItem("ฟรี • Edge Neural • ปรับอารมณ์แบบ Prosody", "edge")
+        self.engine_combo.addItem("Azure Thai MAI • Emotion Style จริง", "azure")
+        self.engine_combo.addItem("ElevenLabs v4 • Voice Acting / Reaction จริง", "eleven")
+
+        self.director_mode_check = QCheckBox("เปิด Voice Director — ใช้ [อารมณ์] กำกับช่วงพูด")
+        self.director_mode_check.setChecked(True)
+
+        self.director_help_btn = QPushButton("ดูคำกำกับอารมณ์")
+        self.director_help_btn.clicked.connect(self.show_director_help)
+
+        self.director_example_btn = QPushButton("ใส่ตัวอย่าง Voice Director")
+        self.director_example_btn.clicked.connect(self.insert_director_example)
 
         self.voice_filter_combo = QComboBox()
         self.voice_filter_combo.addItems(
@@ -309,8 +327,37 @@ class MainWindow(QMainWindow):
         self.voice_combo = QComboBox()
         self.voice_combo.setMinimumContentsLength(34)
 
-        self.refresh_voices_btn = QPushButton("โหลดรายชื่อเสียงออนไลน์")
+        self.refresh_voices_btn = QPushButton("โหลดเสียง Edge ออนไลน์")
         self.refresh_voices_btn.clicked.connect(self.refresh_voice_catalog)
+
+        self.azure_key_edit = QLineEdit()
+        self.azure_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.azure_key_edit.setPlaceholderText("Azure Speech Key — ไม่บันทึกลงไฟล์")
+
+        self.azure_region_edit = QLineEdit("southeastasia")
+        self.azure_region_edit.setPlaceholderText("เช่น southeastasia")
+
+        self.azure_voice_combo = QComboBox()
+        for label, voice_id in AZURE_THAI_VOICES:
+            self.azure_voice_combo.addItem(label, voice_id)
+
+        self.eleven_key_edit = QLineEdit()
+        self.eleven_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.eleven_key_edit.setPlaceholderText("ElevenLabs API Key — ไม่บันทึกลงไฟล์")
+
+        self.eleven_voice_combo = QComboBox()
+        self.eleven_voice_combo.setEditable(True)
+        self.eleven_voice_combo.setMinimumContentsLength(34)
+        if self.eleven_voice_combo.lineEdit():
+            self.eleven_voice_combo.lineEdit().setPlaceholderText(
+                "Voice ID หรือใส่ API Key แล้วกดโหลดเสียง"
+            )
+
+        self.refresh_eleven_btn = QPushButton("โหลด Voices ของฉัน")
+        self.refresh_eleven_btn.clicked.connect(self.refresh_eleven_voices)
+
+        self.provider_note = QLabel("")
+        self.provider_note.setWordWrap(True)
 
         self.tone_combo = QComboBox()
         self.tone_combo.addItems(list(TONE_PRESETS.keys()) + ["กำหนดเอง"])
@@ -380,8 +427,8 @@ class MainWindow(QMainWindow):
         self.table.setHorizontalHeaderLabels(["#", "ข้อความ", "สถานะ", "ชื่อไฟล์ (แก้ได้)"])
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setColumnWidth(0, 50)
-        self.table.setColumnWidth(1, 560)
-        self.table.setColumnWidth(2, 180)
+        self.table.setColumnWidth(1, 590)
+        self.table.setColumnWidth(2, 190)
         self.table.setColumnWidth(3, 350)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setSelectionMode(QTableWidget.SingleSelection)
@@ -395,6 +442,8 @@ class MainWindow(QMainWindow):
         self._apply_styles()
         self.filter_voice_catalog()
         self.apply_tone_preset("ธรรมชาติ")
+        self.engine_combo.currentIndexChanged.connect(self.on_engine_changed)
+        self.on_engine_changed()
         self.build_queue()
 
     @staticmethod
@@ -417,7 +466,7 @@ class MainWindow(QMainWindow):
         title.setFont(title_font)
 
         subtitle = QLabel(
-            "Text-to-Speech สำหรับ Windows • เสียงไทย/Multilingual • ปรับโทน • ฟังในโปรแกรม • ตั้งชื่อไฟล์เอง"
+            "Voice Director • เปลี่ยนอารมณ์กลางประโยค • อุทาน/หัวเราะ/ถอนหายใจ • เสียงไทย • ตั้งชื่อไฟล์เอง"
         )
 
         root.addWidget(title)
@@ -429,49 +478,93 @@ class MainWindow(QMainWindow):
         top_layout = QHBoxLayout(top)
         top_layout.setContentsMargins(0, 0, 0, 0)
 
-        text_group = QGroupBox("1) ข้อความ")
+        text_group = QGroupBox("1) บทพูด / Voice Direction")
         text_layout = QVBoxLayout(text_group)
         text_layout.addWidget(self.text_edit)
-        pause_hint = QLabel("เคล็ดลับ: | = พักสั้น   •   || = พักยาว")
-        text_layout.addWidget(pause_hint)
-        text_layout.addWidget(self.build_queue_btn)
+        hint = QLabel(
+            "กำกับได้ เช่น [อุทาน] [สงสัย] [ครุ่นคิด] [หัวเราะ] [ถอนหายใจ] "
+            "[กระซิบ] [จริงจัง]  •  | พักสั้น  •  || พักยาว"
+        )
+        hint.setWordWrap(True)
+        text_layout.addWidget(hint)
 
-        settings_group = QGroupBox("2) เสียงและความเป็นธรรมชาติ")
+        director_buttons = QHBoxLayout()
+        director_buttons.addWidget(self.build_queue_btn)
+        director_buttons.addWidget(self.director_help_btn)
+        director_buttons.addWidget(self.director_example_btn)
+        text_layout.addLayout(director_buttons)
+
+        settings_group = QGroupBox("2) Engine / บุคคล / การแสดงเสียง")
         grid = QGridLayout(settings_group)
 
         grid.addWidget(QLabel("วิธีแบ่ง"), 0, 0)
         grid.addWidget(self.mode_combo, 0, 1, 1, 3)
 
-        grid.addWidget(QLabel("กลุ่มเสียง"), 1, 0)
-        grid.addWidget(self.voice_filter_combo, 1, 1, 1, 3)
+        grid.addWidget(QLabel("Engine"), 1, 0)
+        grid.addWidget(self.engine_combo, 1, 1, 1, 3)
 
-        grid.addWidget(QLabel("ค้นหาเสียง"), 2, 0)
-        grid.addWidget(self.voice_search, 2, 1, 1, 2)
-        grid.addWidget(self.refresh_voices_btn, 2, 3)
+        grid.addWidget(self.director_mode_check, 2, 1, 1, 3)
 
-        grid.addWidget(QLabel("บุคคล / Voice"), 3, 0)
-        grid.addWidget(self.voice_combo, 3, 1, 1, 3)
+        self.edge_group_label = QLabel("กลุ่มเสียง")
+        grid.addWidget(self.edge_group_label, 3, 0)
+        grid.addWidget(self.voice_filter_combo, 3, 1, 1, 3)
 
-        grid.addWidget(QLabel("โทน"), 4, 0)
-        grid.addWidget(self.tone_combo, 4, 1, 1, 3)
+        self.edge_search_label = QLabel("ค้นหาเสียง")
+        grid.addWidget(self.edge_search_label, 4, 0)
+        grid.addWidget(self.voice_search, 4, 1, 1, 2)
+        grid.addWidget(self.refresh_voices_btn, 4, 3)
 
-        grid.addWidget(QLabel("ความเร็ว"), 5, 0)
-        grid.addWidget(self.rate_slider, 5, 1, 1, 2)
-        grid.addWidget(self.rate_value, 5, 3)
+        self.edge_voice_label = QLabel("บุคคล / Voice")
+        grid.addWidget(self.edge_voice_label, 5, 0)
+        grid.addWidget(self.voice_combo, 5, 1, 1, 3)
 
-        grid.addWidget(QLabel("Pitch"), 6, 0)
-        grid.addWidget(self.pitch_slider, 6, 1, 1, 2)
-        grid.addWidget(self.pitch_value, 6, 3)
+        self.azure_key_label = QLabel("Azure Key")
+        grid.addWidget(self.azure_key_label, 6, 0)
+        grid.addWidget(self.azure_key_edit, 6, 1, 1, 3)
 
-        grid.addWidget(QLabel("Volume"), 7, 0)
-        grid.addWidget(self.volume_slider, 7, 1, 1, 2)
-        grid.addWidget(self.volume_value, 7, 3)
+        self.azure_region_label = QLabel("Azure Region")
+        grid.addWidget(self.azure_region_label, 7, 0)
+        grid.addWidget(self.azure_region_edit, 7, 1)
 
-        grid.addWidget(self.natural_pause_check, 8, 1, 1, 3)
+        self.azure_voice_label = QLabel("Thai MAI Voice")
+        grid.addWidget(self.azure_voice_label, 7, 2)
+        grid.addWidget(self.azure_voice_combo, 7, 3)
 
-        grid.addWidget(QLabel("บันทึกที่"), 9, 0)
-        grid.addWidget(self.output_label, 9, 1, 1, 2)
-        grid.addWidget(self.choose_output_btn, 9, 3)
+        self.eleven_key_label = QLabel("ElevenLabs Key")
+        grid.addWidget(self.eleven_key_label, 8, 0)
+        grid.addWidget(self.eleven_key_edit, 8, 1, 1, 3)
+
+        self.eleven_voice_label = QLabel("Eleven Voice")
+        grid.addWidget(self.eleven_voice_label, 9, 0)
+        grid.addWidget(self.eleven_voice_combo, 9, 1, 1, 2)
+        grid.addWidget(self.refresh_eleven_btn, 9, 3)
+
+        grid.addWidget(self.provider_note, 10, 0, 1, 4)
+
+        self.tone_label = QLabel("โทนพื้นฐาน")
+        grid.addWidget(self.tone_label, 11, 0)
+        grid.addWidget(self.tone_combo, 11, 1, 1, 3)
+
+        self.rate_label = QLabel("ความเร็ว")
+        grid.addWidget(self.rate_label, 12, 0)
+        grid.addWidget(self.rate_slider, 12, 1, 1, 2)
+        grid.addWidget(self.rate_value, 12, 3)
+
+        self.pitch_label = QLabel("Pitch")
+        grid.addWidget(self.pitch_label, 13, 0)
+        grid.addWidget(self.pitch_slider, 13, 1, 1, 2)
+        grid.addWidget(self.pitch_value, 13, 3)
+
+        self.volume_label = QLabel("Volume")
+        grid.addWidget(self.volume_label, 14, 0)
+        grid.addWidget(self.volume_slider, 14, 1, 1, 2)
+        grid.addWidget(self.volume_value, 14, 3)
+
+        grid.addWidget(self.natural_pause_check, 15, 1, 1, 3)
+
+        grid.addWidget(QLabel("บันทึกที่"), 16, 0)
+        grid.addWidget(self.output_label, 16, 1, 1, 2)
+        grid.addWidget(self.choose_output_btn, 16, 3)
 
         top_layout.addWidget(text_group, 3)
         top_layout.addWidget(settings_group, 3)
@@ -507,13 +600,138 @@ class MainWindow(QMainWindow):
 
         splitter.addWidget(top)
         splitter.addWidget(bottom)
-        splitter.setSizes([390, 470])
+        splitter.setSizes([470, 450])
 
         root.addWidget(splitter, 1)
         root.addWidget(self.progress)
         root.addWidget(self.status_label)
 
         self.setCentralWidget(central)
+
+    def show_director_help(self) -> None:
+        QMessageBox.information(self, "Voice Director", DIRECTOR_HELP)
+
+    def insert_director_example(self) -> None:
+        self.text_edit.setPlainText(
+            "[เป็นกันเอง] หลายคนคิดว่าเสียง AI ก็ต้องฟังแข็ง ๆ || "
+            "[อุทาน] แต่จริง ๆ ไม่ใช่!\n"
+            "[ครุ่นคิด] สิ่งที่ทำให้เสียงฟังเป็นคน... | ไม่ได้มีแค่ความเร็วหรือ Pitch\n"
+            "[ตื่นเต้น] มันคือจังหวะ อารมณ์ และการตอบสนองระหว่างพูด!\n"
+            "[หัวเราะ] [อบอุ่น] พอเราใส่สิ่งเหล่านี้เข้าไป เสียงก็มีชีวิตขึ้นเยอะเลย"
+        )
+        self.build_queue()
+
+    def on_engine_changed(self, *_args) -> None:
+        engine = self.engine_combo.currentData()
+
+        edge = engine == "edge"
+        azure = engine == "azure"
+        eleven = engine == "eleven"
+
+        for widget in (
+            self.edge_group_label,
+            self.voice_filter_combo,
+            self.edge_search_label,
+            self.voice_search,
+            self.refresh_voices_btn,
+            self.edge_voice_label,
+            self.voice_combo,
+            self.tone_label,
+            self.tone_combo,
+            self.rate_label,
+            self.rate_slider,
+            self.rate_value,
+            self.pitch_label,
+            self.pitch_slider,
+            self.pitch_value,
+            self.volume_label,
+            self.volume_slider,
+            self.volume_value,
+        ):
+            widget.setVisible(edge)
+
+        for widget in (
+            self.azure_key_label,
+            self.azure_key_edit,
+            self.azure_region_label,
+            self.azure_region_edit,
+            self.azure_voice_label,
+            self.azure_voice_combo,
+        ):
+            widget.setVisible(azure)
+
+        for widget in (
+            self.eleven_key_label,
+            self.eleven_key_edit,
+            self.eleven_voice_label,
+            self.eleven_voice_combo,
+            self.refresh_eleven_btn,
+        ):
+            widget.setVisible(eleven)
+
+        if edge:
+            self.provider_note.setText(
+                "ฟรี: เปลี่ยนอารมณ์แต่ละช่วงด้วย Rate / Pitch / Volume แบบอัตโนมัติ "
+                "แต่หัวเราะ/ถอนหายใจ/กระซิบเป็นเพียงการประมาณ ไม่ใช่ reaction จริง"
+            )
+        elif azure:
+            self.provider_note.setText(
+                "Azure Thai MAI: ใช้ style จริงของเสียงไทย เช่น excited, curious, "
+                "reflective, serious, sad/disappointed และ friendly/cheerful • Key ไม่ถูกบันทึก"
+            )
+        else:
+            self.provider_note.setText(
+                "ElevenLabs v4: เหมาะกับ Voice Acting และปฏิกิริยามนุษย์ เช่น "
+                "หัวเราะ ถอนหายใจ กระซิบ ลังเล และอารมณ์ระหว่างประโยค • Key ไม่ถูกบันทึก"
+            )
+
+    def refresh_eleven_voices(self) -> None:
+        key = self.eleven_key_edit.text().strip()
+        if not key:
+            QMessageBox.information(self, APP_NAME, "กรุณาใส่ ElevenLabs API Key ก่อน")
+            return
+        if self.eleven_voice_thread and self.eleven_voice_thread.isRunning():
+            return
+
+        self.refresh_eleven_btn.setEnabled(False)
+        self.refresh_eleven_btn.setText("กำลังโหลด...")
+        self.status_label.setText("กำลังโหลด Voices จาก ElevenLabs...")
+
+        self.eleven_voice_thread = QThread(self)
+        self.eleven_voice_worker = ElevenVoiceWorker(key)
+        self.eleven_voice_worker.moveToThread(self.eleven_voice_thread)
+        self.eleven_voice_thread.started.connect(self.eleven_voice_worker.run)
+        self.eleven_voice_worker.finished.connect(self.on_eleven_voices_loaded)
+        self.eleven_voice_worker.error.connect(self.on_eleven_voice_error)
+        self.eleven_voice_worker.finished.connect(self.eleven_voice_thread.quit)
+        self.eleven_voice_worker.finished.connect(self.eleven_voice_worker.deleteLater)
+        self.eleven_voice_thread.finished.connect(self.eleven_voice_thread.deleteLater)
+        self.eleven_voice_thread.start()
+
+    def on_eleven_voices_loaded(self, voices: list) -> None:
+        previous = self.eleven_voice_combo.currentData() or self.eleven_voice_combo.currentText()
+        self.eleven_voice_combo.clear()
+        for voice in voices:
+            label = voice["name"]
+            if voice.get("details"):
+                label += f' • {voice["details"]}'
+            self.eleven_voice_combo.addItem(label, voice["voice_id"])
+
+        if previous:
+            index = self.eleven_voice_combo.findData(previous)
+            if index >= 0:
+                self.eleven_voice_combo.setCurrentIndex(index)
+
+        self.refresh_eleven_btn.setEnabled(True)
+        self.refresh_eleven_btn.setText("โหลด Voices ของฉัน")
+        self.status_label.setText(f"โหลด ElevenLabs Voices แล้ว {len(voices)} เสียง")
+        self.eleven_voice_thread = None
+        self.eleven_voice_worker = None
+
+    def on_eleven_voice_error(self, message: str) -> None:
+        self.refresh_eleven_btn.setEnabled(True)
+        self.refresh_eleven_btn.setText("โหลด Voices ของฉัน")
+        self.status_label.setText(f"โหลด ElevenLabs Voices ไม่สำเร็จ: {message}")
 
     def _apply_styles(self) -> None:
         self.setStyleSheet(
