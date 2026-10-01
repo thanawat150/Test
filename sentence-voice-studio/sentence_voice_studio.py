@@ -907,7 +907,7 @@ class MainWindow(QMainWindow):
         self.play_audio_path(self.output_dir / item.filename)
 
     def pause_resume_audio(self) -> None:
-        if self.player.playbackState() == QMediaPlayer.PlayingState:
+        if self.player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
             self.player.pause()
         else:
             self.player.play()
