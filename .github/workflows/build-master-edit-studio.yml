@@ -1,10 +1,10 @@
-name: Build GuideCut Studio
+name: Build AutoCut Studio
 
 on:
   workflow_dispatch:
   push:
     branches:
-      - feature/guide-video-editor-v2
+      - feature/autocut-studio-v3
     paths:
       - "master-edit-studio/**"
       - ".github/workflows/build-master-edit-studio.yml"
@@ -38,22 +38,22 @@ jobs:
       - name: Run tests
         run: pytest -q
 
-      - name: Verify FFmpeg capabilities
+      - name: Verify FFmpeg
         shell: pwsh
         run: |
           python -c "import imageio_ffmpeg, os; p=imageio_ffmpeg.get_ffmpeg_exe(); print(p); assert os.path.exists(p)"
           $ffmpeg = python -c "import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())"
           $filters = & $ffmpeg -hide_banner -filters 2>&1 | Out-String
-          if ($filters -notmatch "subtitles") { throw "Bundled FFmpeg lacks subtitles/libass filter" }
+          if ($filters -notmatch "silencedetect") { throw "Bundled FFmpeg lacks silencedetect" }
 
       - name: Build EXE
         run: |
-          pyinstaller --noconfirm --clean --onefile --windowed --name GuideCutStudio --collect-all imageio_ffmpeg --collect-all python_calamine master_edit_studio.py
+          pyinstaller --noconfirm --clean --onefile --windowed --name AutoCutStudio --collect-all imageio_ffmpeg --collect-all python_calamine master_edit_studio.py
 
       - name: Upload EXE
         uses: actions/upload-artifact@v4
         with:
-          name: GuideCutStudio-Windows
-          path: master-edit-studio/dist/GuideCutStudio.exe
+          name: AutoCutStudio-Windows
+          path: master-edit-studio/dist/AutoCutStudio.exe
           if-no-files-found: error
           retention-days: 30
