@@ -1,0 +1,59 @@
+name: Build GuideCut Studio
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/guide-video-editor-v2
+    paths:
+      - "master-edit-studio/**"
+      - ".github/workflows/build-master-edit-studio.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "master-edit-studio/**"
+      - ".github/workflows/build-master-edit-studio.yml"
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        working-directory: master-edit-studio
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Run tests
+        run: pytest -q
+
+      - name: Verify FFmpeg capabilities
+        shell: pwsh
+        run: |
+          python -c "import imageio_ffmpeg, os; p=imageio_ffmpeg.get_ffmpeg_exe(); print(p); assert os.path.exists(p)"
+          $ffmpeg = python -c "import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())"
+          $filters = & $ffmpeg -hide_banner -filters 2>&1 | Out-String
+          if ($filters -notmatch "subtitles") { throw "Bundled FFmpeg lacks subtitles/libass filter" }
+
+      - name: Build EXE
+        run: |
+          pyinstaller --noconfirm --clean --onefile --windowed --name GuideCutStudio --collect-all imageio_ffmpeg --collect-all python_calamine master_edit_studio.py
+
+      - name: Upload EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: GuideCutStudio-Windows
+          path: master-edit-studio/dist/GuideCutStudio.exe
+          if-no-files-found: error
+          retention-days: 30
