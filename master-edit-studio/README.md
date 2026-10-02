@@ -1,84 +1,64 @@
-# GuideCut Studio 2.0
+# AutoCut Studio 3.0
 
-โปรแกรมตัดต่อวิดีโอแบบ **Guide-driven** สำหรับ Content Guide 1–2 นาที
+โปรแกรมตัดต่อวิดีโออัตโนมัติแบบ **ไม่ต้องใช้ Excel Guide**
 
-แนวคิดหลัก:
+Workflow:
 
-**Guide Excel → Media → Auto Build → Human Review → Preview → Export**
+**เลือกโฟลเดอร์วิดีโอ → AUTO CUT → ตรวจ Rough Cut → Preview → Export**
 
-## รองรับ Content Guide จากระบบปัจจุบัน
+## Auto Cut Modes
 
-อ่าน Sheet:
+- **ผสม** — ใช้ช่วงพูดเป็นแกนและแทรก B-roll
+- **พูดหน้ากล้อง** — เน้นคลิปที่มีเสียงพูดและตัด silence
+- **B-roll** — สร้าง montage จากช่วงสั้น ๆ ของแต่ละคลิป
 
-- Overview
-- Script Flow
-- Visual Plan
-- Checklist
+## Target Length
 
-ไม่ใช้ 16-Angle Library ในหน้าตัดต่อ เพราะเป็นข้อมูลคิดคอนเทนต์ ไม่ใช่ข้อมูล Render
+- Auto
+- 30 วินาที
+- 60 วินาที
+- 90 วินาที
 
-## Master Timeline
+## Silence Detection
 
-เมื่อเปิด Guide โปรแกรมสร้าง Story Blocks อัตโนมัติ เช่น:
+ใช้ FFmpeg silencedetect ตรวจช่วงเงียบจากคลิปที่มี audio แล้วสร้าง speech segments อัตโนมัติ
 
-- Hook
-- Context
-- Core
-- Payoff
-- Bridge
+## Auto Timeline
 
-แต่ละแถวมี:
+หลัง AUTO CUT โปรแกรมสร้าง Timeline ต่อเนื่องให้อัตโนมัติ พร้อม:
 
+- Type: TALK / B-ROLL / AUTO
 - Timeline Start / End
-- Video
+- Source Video
 - Source In / Out
-- Visual / Proof
-- Keyword
-- Match
+- Length
+- Original Audio dB
+- Status
 
-## Auto Build
+ผู้ใช้สามารถ:
 
-เลือกโฟลเดอร์ Media แล้วกด **Auto Build**
-
-โปรแกรมจะ:
-
-1. Scan วิดีโอทุก subfolder
-2. พยายามจับชนิดภาพจากชื่อไฟล์กับ Visual / Proof
-3. ใส่วิดีโอให้ Story Blocks
-4. สร้าง Rough Cut
-5. Mark ทุกแถวให้ผู้ใช้ตรวจ Source In / Out ก่อน Export
-
-Auto Build เป็น draft ไม่ใช่ final editorial decision
-
-## Coverage
-
-แสดงว่า Hook / Context / Core / Payoff / Bridge มี Media พร้อมแล้วหรือยัง
-
-## Manual Review
-
-- เปลี่ยนคลิปแถวที่เลือก
-- เปิด Source ด้วย player ของ Windows
+- เปิด Source
+- เปลี่ยนคลิป
 - แก้ Src In / Src Out
-- แก้ Keyword
-- ปิดบางแถวได้
+- ปิดบางช่วง
+- ปรับเสียง Original dB
 
 ## Render
 
 - Preview
 - Final MP4
 - Auto GPU: NVIDIA / Intel / AMD / CPU fallback
-- Keyword burn-in
-- Subtitle ไม่ burn-in
-- Export .srt แยก
-- Final stage ใช้ stream-copy video + audio mux เพื่อลดเวลา export
+- Final mux ใช้ stream copy เพื่อลด re-encode รอบสุดท้าย
 
-## Output
+## Scope
 
-ตัวอย่าง:
+AutoCut 3.0 เป็น rough-cut engine แบบ local-first และไม่เรียก cloud AI ภายนอก
 
-    GuideCut_Output.mp4
-    GuideCut_Output.srt
+ตอนนี้การเลือกช่วงอัตโนมัติใช้:
+- audio presence
+- silence detection
+- clip duration
+- B-roll windows
+- target duration
 
-## Legacy
-
-ยังเปิด Master Edit Guide รุ่นเดิมได้ best-effort แต่หน้าหลักและ Auto Build ออกแบบมาสำหรับ Content Guide รุ่นใหม่เป็นหลัก
+ยังไม่ได้ใช้ computer vision วิเคราะห์ว่าเฟรมไหนสวย/สั่น/เบลอ หรือ speech-to-text เพื่อเข้าใจเนื้อหาคำพูด
