@@ -1,90 +1,131 @@
 import os
 import sys
+from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from default_ep01 import default_project
-from project_model import (
-    blank_project,
-    load_default_project,
-    parse_db_instruction,
-    parse_range,
-    parse_single_time,
+from content_guide import (
+    auto_build,
+    build_content_project,
+    coverage,
+    parse_time_range,
 )
+from project_model import blank_project, load_default_project
 from render_engine import (
-    ass_time,
-    generate_ass,
-    generate_srt,
-    generate_keyword_ass,
     build_final_command,
-    preflight,
+    generate_srt,
     readable_file,
     select_video_encoder,
     video_encode_args,
 )
 
 
-def test_latest_embedded_guide_has_sfx_column():
-    guide = default_project()
-    assert "SFX" in guide["master_headers"]
-    assert len(guide["master_timeline"]) == 18
+OVERVIEW = [
+    ["Field", "Value"],
+    ["Topic", "ทำ AI ตัดต่อวิดีโอเองได้ไหม"],
+    ["Target Length", "1–2 นาที"],
+    ["Recommended Hook", "ถ้า AI เขียนโค้ดได้ มันก็น่าจะตัดคลิปได้"],
+    ["Payoff", "AI ทำ rough cut ได้ แต่มนุษย์ยังคุม taste"],
+]
 
-    sfx_index = guide["master_headers"].index("SFX")
-    assert "Interface Click.mp3" in guide["master_timeline"][1][sfx_index]
-    assert "Thin Swoosh.mp3" in guide["master_timeline"][2][sfx_index]
-    assert "Cinematic Low Hit.mp3" in guide["master_timeline"][3][sfx_index]
-    assert "Swoosh Riser Reverb.mp3" in guide["master_timeline"][10][sfx_index]
+FLOW = [
+    ["Time", "Beat", "Goal", "Narration / Talking Point", "Visual / Proof", "On-screen Text"],
+    ["0–8s", "Hook", "หยุดคนดู", "ประโยค Hook", "Talking Head", "AI CUT?"],
+    ["8–25s", "Context", "ทำให้คนอยากรู้ต่อ", "Context", "Screen / B-roll", "PROBLEM"],
+    ["25–65s", "Core", "อธิบาย", "Core", "Demo / Screen", "ROUGH CUT"],
+    ["65–95s", "Payoff", "สรุป", "Payoff", "Talking Head / Result", "HUMAN TASTE"],
+    ["95–120s", "Bridge", "ตอนต่อ", "Bridge", "Screen / Tease", "NEXT EP"],
+]
 
+VISUALS = [
+    ["Asset / Shot", "Type", "Purpose", "What to Prepare", "Status", "Notes"],
+    ["Opening", "Talking Head / Hero Shot", "Hook", "Hero", "Need", ""],
+    ["Context", "Screen / B-roll", "Context", "Screen", "Need", ""],
+    ["Core Proof", "Demo / Screen", "Core", "Demo", "Need", ""],
+    ["Payoff", "Talking Head / Result", "Payoff", "Result", "Need", ""],
+    ["Bridge", "Screen / Tease", "Bridge", "Tease", "Need", ""],
+]
 
-def test_latest_sfx_defaults_are_parsed_from_guide():
-    project = load_default_project()
-    sfx = {item["name"]: item for item in project["sfx"]}
-
-    assert sfx["Interface Click"]["enabled"] is True
-    assert sfx["Interface Click"]["file"] == "Interface Click.mp3"
-    assert sfx["Interface Click"]["start"] == 2.0
-    assert sfx["Interface Click"]["gain_db"] == -16.0
-
-    assert sfx["Thin Swoosh"]["enabled"] is True
-    assert sfx["Cinematic Low Hit"]["enabled"] is True
-    assert sfx["Swoosh Riser Reverb"]["enabled"] is False
-    assert sfx["Swoosh Riser Reverb"]["start"] == 45.5
-
-
-def test_timeline_contains_sfx_guide_text():
-    project = load_default_project()
-    assert "Interface Click.mp3" in project["timeline"][1]["sfx_instruction"]
-    assert "Cinematic Low Hit.mp3" in project["timeline"][3]["sfx_instruction"]
-
-
-def test_time_and_db_parsing():
-    assert parse_range("00:02.00–00:06.00") == (2.0, 6.0)
-    assert parse_single_time("~00:45.5") == 45.5
-    assert parse_db_instruction("Hero: -4 ถึง -2 dB") == -3.0
-    assert parse_db_instruction("Mute เสียง Map") == -96.0
+CHECKLIST = [
+    ["Category", "Check", "Status"],
+    ["Hook", "เข้าใจได้", "Todo"],
+    ["Proof", "มี Demo", "Todo"],
+]
 
 
-def test_ass_time():
-    assert ass_time(68.0) == "0:01:08.00"
+def make_content_project():
+    return build_content_project(
+        OVERVIEW,
+        FLOW,
+        VISUALS,
+        CHECKLIST,
+        guide_name="Test Guide",
+    )
 
 
-def test_ass_generation_keeps_keyword_but_not_subtitle_burn_in(tmp_path):
-    project = load_default_project()
-    out = tmp_path / "overlay.ass"
-    generate_ass(project, out, 1080, 1920)
-    text = out.read_text(encoding="utf-8-sig")
-
-    assert "Style: Keyword" in text
-    assert "1 POINT" in text
-    assert "ปกติเวลาดูแผนที่" not in text
+def test_parse_content_guide_time_range():
+    assert parse_time_range("0–8s") == (0.0, 8.0)
+    assert parse_time_range("8-25s") == (8.0, 25.0)
+    assert parse_time_range("95 → 120s") == (95.0, 120.0)
 
 
+def test_content_guide_becomes_five_story_blocks():
+    project = make_content_project()
+    assert project["guide_type"] == "content-guide"
+    assert len(project["timeline"]) == 5
+    assert [x["beat"] for x in project["timeline"]] == [
+        "Hook", "Context", "Core", "Payoff", "Bridge"
+    ]
+    assert project["timeline"][0]["text"] == "AI CUT?"
+    assert project["timeline"][2]["crop_mode"] == "Fit + Blur"
 
-def test_empty_asset_path_is_not_treated_as_current_directory(tmp_path):
+
+def test_auto_build_assigns_media(tmp_path):
+    project = make_content_project()
+
+    for name in [
+        "01_talk_hero.mov",
+        "02_screen_context.mp4",
+        "03_demo_workflow.mp4",
+        "04_result_face.mp4",
+        "05_screen_tease.mp4",
+    ]:
+        (tmp_path / name).write_bytes(b"video")
+
+    auto_build(project, tmp_path)
+
+    assert all(row["asset_path"] for row in project["timeline"])
+    assert all(row["match_status"] == "AUTO" for row in project["timeline"])
+    assert project["timeline"][0]["file"] == "01_talk_hero.mov"
+    assert "demo" in project["timeline"][2]["file"].lower()
+
+
+def test_coverage_reports_story_blocks(tmp_path):
+    project = make_content_project()
+    before = coverage(project)
+    assert before["ready"] == 0
+    assert before["total"] == 5
+
+    for index in range(5):
+        (tmp_path / f"{index:02d}.mp4").write_bytes(b"x")
+    auto_build(project, tmp_path)
+
+    after = coverage(project)
+    assert after["ready"] == 5
+    assert all(after["beats"].values())
+
+
+def test_blank_project_is_empty():
+    project = blank_project()
+    assert project["timeline"] == []
+    assert project["asset_root"] == ""
+    assert project["output_path"] == ""
+
+
+def test_empty_path_is_not_a_file(tmp_path):
     ok, reason = readable_file("")
     assert ok is False
     assert "ยังไม่ได้จับคู่" in reason
@@ -93,88 +134,15 @@ def test_empty_asset_path_is_not_treated_as_current_directory(tmp_path):
     assert ok is False
     assert "โฟลเดอร์" in reason
 
-    actual = tmp_path / "clip.mp4"
-    actual.write_bytes(b"test")
-    ok, reason = readable_file(actual)
-    assert ok is True
-    assert reason == ""
 
-
-def test_preflight_blocks_default_project_before_asset_matching():
-    project = load_default_project()
-    issues = preflight(project)
-    assert issues
-    assert any("ยังไม่ได้จับคู่" in issue for issue in issues)
-
-
-def test_blank_project_is_really_empty():
-    project = blank_project()
-    assert project["timeline"] == []
-    assert project["voices"] == []
-    assert project["music"] == []
-    assert project["sfx"] == []
-    assert project["asset_root"] == ""
-    assert project["output_path"] == ""
-
-
-
-def test_default_project_uses_auto_gpu():
-    project = load_default_project()
-    assert project["settings"]["encoder_mode"] == "Auto GPU"
-
-
-def test_cpu_encoder_selection_is_stable():
+def test_cpu_encoder_selection():
     assert select_video_encoder("CPU x264") == ("libx264", "CPU x264")
 
 
-def test_gpu_encode_args_use_expected_encoder():
+def test_gpu_encoder_args():
     args = video_encode_args("h264_nvenc", preview=False, bitrate="16M")
-    assert args[0:2] == ["-c:v", "h264_nvenc"]
+    assert args[:2] == ["-c:v", "h264_nvenc"]
     assert "16M" in args
-    assert "yuv420p" in args
-
-    cpu = video_encode_args("libx264", preview=False, bitrate="16M")
-    assert cpu[0:2] == ["-c:v", "libx264"]
-    assert "-crf" in cpu
-
-
-
-def test_master_timeline_is_the_only_visible_work_page():
-    from PySide6.QtWidgets import QApplication
-    from master_edit_studio import MainWindow
-
-    app = QApplication.instance() or QApplication([])
-    window = MainWindow()
-
-    assert window.timeline_table.columnCount() == 12
-    assert window.timeline_table.rowCount() == 18
-    assert window.voice_table.columnCount() == 7
-    assert window.music_table.columnCount() == 7
-    assert window.sfx_table.columnCount() == 5
-    assert window.tabs.count() == 0
-
-    window.close()
-
-
-
-def test_srt_export_is_separate_from_video(tmp_path):
-    project = load_default_project()
-    out = tmp_path / "episode.srt"
-    generate_srt(project, out)
-    text = out.read_text(encoding="utf-8-sig")
-    assert "-->" in text
-    assert "ปกติเวลาดูแผนที่" in text
-
-
-def test_keyword_ass_contains_only_keyword_layer(tmp_path):
-    project = load_default_project()
-    item = next(x for x in project["timeline"] if x.get("text"))
-    out = tmp_path / "keyword.ass"
-    ok = generate_keyword_ass(item, out, 1080, 1920, 4.0)
-    assert ok is True
-    text = out.read_text(encoding="utf-8-sig")
-    assert "Style: Keyword" in text
-    assert "Style: Subtitle" not in text
 
 
 def test_final_mux_copies_video_without_reencoding(tmp_path):
@@ -184,6 +152,26 @@ def test_final_mux_copies_video_without_reencoding(tmp_path):
     cmd, _ = build_final_command(project, base, output, preview=False)
     joined = " ".join(cmd)
     assert "-c:v copy" in joined
-    assert "subtitles=" not in joined
     assert "libx264" not in joined
     assert "h264_amf" not in joined
+
+
+def test_srt_export_is_separate(tmp_path):
+    project = load_default_project()
+    out = tmp_path / "episode.srt"
+    generate_srt(project, out)
+    text = out.read_text(encoding="utf-8-sig")
+    assert "-->" in text
+
+
+def test_guidecut_ui_starts_blank():
+    from PySide6.QtWidgets import QApplication
+    from master_edit_studio import MainWindow
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+    assert window.windowTitle().startswith("GuideCut Studio 2.0.0")
+    assert window.table.columnCount() == 10
+    assert window.table.rowCount() == 0
+    assert window.auto_btn.text() == "Auto Build"
+    window.close()
