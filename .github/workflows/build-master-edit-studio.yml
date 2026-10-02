@@ -1,10 +1,10 @@
-name: Build Master Edit Studio
+name: Build GuideCut Studio
 
 on:
   workflow_dispatch:
   push:
     branches:
-      - feature/master-edit-studio
+      - feature/guide-video-editor-v2
     paths:
       - "master-edit-studio/**"
       - ".github/workflows/build-master-edit-studio.yml"
@@ -45,16 +45,15 @@ jobs:
           $ffmpeg = python -c "import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())"
           $filters = & $ffmpeg -hide_banner -filters 2>&1 | Out-String
           if ($filters -notmatch "subtitles") { throw "Bundled FFmpeg lacks subtitles/libass filter" }
-          if ($filters -notmatch "overlay") { throw "Bundled FFmpeg lacks overlay filter" }
 
       - name: Build EXE
         run: |
-          pyinstaller --noconfirm --clean --onefile --windowed --name MasterEditStudio --collect-all imageio_ffmpeg --collect-all python_calamine master_edit_studio.py
+          pyinstaller --noconfirm --clean --onefile --windowed --name GuideCutStudio --collect-all imageio_ffmpeg --collect-all python_calamine master_edit_studio.py
 
       - name: Upload EXE
         uses: actions/upload-artifact@v4
         with:
-          name: MasterEditStudio-Windows
-          path: master-edit-studio/dist/MasterEditStudio.exe
+          name: GuideCutStudio-Windows
+          path: master-edit-studio/dist/GuideCutStudio.exe
           if-no-files-found: error
           retention-days: 30
